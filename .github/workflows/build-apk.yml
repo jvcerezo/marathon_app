@@ -1,0 +1,105 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "release or debug"
+        default: "release"
+        required: false
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.5"
+          channel: stable
+          cache: true
+
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      # NDK/CMake live outside the Gradle cache and re-install cold each run
+      # otherwise. Caching them shaves several minutes off subsequent builds.
+      - name: Cache Android SDK toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.android/build-cache
+            /usr/local/lib/android/sdk/cmake
+            /usr/local/lib/android/sdk/ndk
+          key: android-sdk-${{ runner.os }}-v1
+          restore-keys: android-sdk-${{ runner.os }}-
+
+      - name: Auto-increment build number
+        run: |
+          CURRENT=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          NEW=$((CURRENT + ${{ github.run_number }}))
+          VERSION_NAME=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          sed -i "s/^version: .*/version: ${VERSION_NAME}+${NEW}/" pubspec.yaml
+          echo "Building with versionCode=${NEW}"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run drift codegen
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Disable Gradle file watching (prevents CI hang)
+        run: |
+          mkdir -p ~/.gradle
+          echo "org.gradle.vfs.watch=false" >> ~/.gradle/gradle.properties
+
+      - name: Build APK
+        run: |
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'release' }}"
+          flutter build apk --$BUILD_TYPE
+
+      - name: Resolve version + tag
+        id: ver
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/ *#.*//')
+          TAG="build-${{ github.run_number }}-${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # Artifact upload is the easy path: download via the Actions UI on
+      # phone or desktop. For longer-lived links, swap to a Release upload.
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: marathon-apk-${{ steps.ver.outputs.tag }}
+          path: build/app/outputs/flutter-apk/app-*.apk
+          if-no-files-found: error
+          retention-days: 14
