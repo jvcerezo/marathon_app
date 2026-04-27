@@ -1,0 +1,62 @@
+name: marathon_app
+description: "Placeholder marathon training app. Personalized 365-day plan with GPS-tracked sessions."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Navigation
+  go_router: ^14.8.1
+
+  # Local DB
+  drift: ^2.32.1
+  sqlite3_flutter_libs: ^0.5.30
+  path_provider: ^2.1.5
+  path: ^1.9.0
+
+  # Models
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # Local prefs
+  shared_preferences: ^2.5.3
+
+  # GPS + sensors
+  geolocator: ^13.0.2
+  permission_handler: ^11.3.1
+  wakelock_plus: ^1.2.8
+
+  # Map rendering (free tiles via OSM)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # Charts
+  fl_chart: ^1.2.0
+
+  # Misc
+  uuid: ^4.5.1
+  intl: ^0.20.2
+  flutter_animate: ^4.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+  # Codegen — pinned to versions that support Dart 3.11 / analyzer 8+
+  build_runner: ^2.14.1
+  drift_dev: ^2.32.1
+  json_serializable: ^6.13.1
+
+flutter:
+  uses-material-design: true
