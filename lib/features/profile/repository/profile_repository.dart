@@ -23,6 +23,7 @@ class ProfileRepository {
     await _db.into(_db.userProfiles).insertOnConflictUpdate(
           UserProfilesCompanion.insert(
             id: profile.id,
+            name: Value(profile.name),
             ageYears: profile.ageYears,
             gender: profile.gender.name,
             heightCm: profile.heightCm,
@@ -41,6 +42,7 @@ class ProfileRepository {
 
   UserProfile _toDomain(UserProfileRow row) => UserProfile(
         id: row.id,
+        name: row.name,
         ageYears: row.ageYears,
         gender: Gender.values.firstWhere((g) => g.name == row.gender),
         heightCm: row.heightCm,
