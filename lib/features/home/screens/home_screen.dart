@@ -43,7 +43,7 @@ class HomeScreen extends ConsumerWidget {
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.huge,
+                AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.fabSafe,
               ),
               children: [
                 _Header(profile: profile),

@@ -28,7 +28,7 @@ class RunsHistoryScreen extends ConsumerWidget {
           final keys = grouped.keys.toList();
           return ListView(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.huge,
+              AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.fabSafe,
             ),
             children: [
               _Summary(summary: summary),
