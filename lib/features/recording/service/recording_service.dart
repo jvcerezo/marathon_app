@@ -80,9 +80,16 @@ class RecordingService {
 
     _gpsSub = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 1),
+        // `high` is plenty for runners; `bestForNavigation` is tuned for
+        // cars at 100 km/h and draws noticeably more on some chipsets.
+        accuracy: LocationAccuracy.high,
+        // Don't emit samples while the user is standing still (red lights,
+        // water breaks). Auto-pause already kicks in via RunRecorder.
+        distanceFilter: 3,
+        // Every 2 seconds is the standard "battery saver" cadence used by
+        // Strava et al. At 8 m/s we still get a sample every ~16 m, which
+        // simplifies down to the same polyline after Douglas-Peucker.
+        intervalDuration: const Duration(seconds: 2),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Recording run',
           notificationText: 'Tap to return',
@@ -113,8 +120,11 @@ class RecordingService {
       _allSamples.add(s);
     });
 
+    // 30s flush cadence trades a bit of crash-recovery granularity (we
+    // could lose up to 30s of samples instead of 10s) for noticeably
+    // fewer SQLite wakes on a long run.
     _flushTimer =
-        Timer.periodic(const Duration(seconds: 10), (_) => _flush());
+        Timer.periodic(const Duration(seconds: 30), (_) => _flush());
   }
 
   void pause() {
