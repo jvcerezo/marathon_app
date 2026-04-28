@@ -36,6 +36,7 @@ class RecordingService {
 
   RunRecorder? get recorder => _recorder;
   String? get currentRunId => _runId;
+  List<RunSample> get currentSamples => List.unmodifiable(_allSamples);
 
   Future<bool> ensurePermissions() async {
     var permission = await Geolocator.checkPermission();
