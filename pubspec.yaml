@@ -39,6 +39,7 @@ dependencies:
   # Map rendering (free tiles via OSM)
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  cached_network_image: ^3.4.1
 
   # Charts
   fl_chart: ^1.2.0

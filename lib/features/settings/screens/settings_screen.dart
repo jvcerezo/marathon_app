@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/design/tokens.dart';
 import '../../../core/design/widgets/section_label.dart';
 import '../../../core/format/format.dart';
+import '../../../core/preferences/user_preferences.dart';
 import '../../../core/providers/providers.dart';
 import '../../plan/providers/plan_providers.dart';
 import '../../profile/models/user_profile.dart';
@@ -133,6 +134,18 @@ class SettingsScreen extends ConsumerWidget {
                 description:
                     'Rebuilds the 52-week plan from current settings. Completed sessions become unmatched.',
                 onTap: () => _regeneratePlan(context, ref, profile),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              const _SectionHeader('Preferences'),
+              _ToggleTile(
+                label: 'Show map during recording',
+                description:
+                    'Disable to save battery on long runs. Route is still recorded.',
+                value: ref.watch(userPreferencesProvider)
+                    .showMapDuringRecording,
+                onChanged: (v) => ref
+                    .read(userPreferencesProvider.notifier)
+                    .setShowMap(v),
               ),
               const SizedBox(height: AppSpacing.xl),
               const _SectionHeader('About'),
@@ -408,6 +421,68 @@ class _SettingsTile extends StatelessWidget {
                   Icon(Icons.chevron_right,
                       color: cs.onSurfaceVariant, size: 20),
                 ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToggleTile extends StatelessWidget {
+  final String label;
+  final String description;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleTile({
+    required this.label,
+    required this.description,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Material(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          onTap: () => onChanged(!value),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg, vertical: AppSpacing.md,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: cs.outlineVariant),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label,
+                          style: Theme.of(context).textTheme.bodyLarge),
+                      const SizedBox(height: 2),
+                      Text(
+                        description,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Switch(
+                  value: value,
+                  onChanged: onChanged,
+                ),
               ],
             ),
           ),
