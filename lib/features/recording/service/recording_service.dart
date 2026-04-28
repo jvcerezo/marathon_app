@@ -10,12 +10,14 @@ import '../../runs/repository/runs_repository.dart';
 import '../models/raw_sample.dart';
 import '../models/run_sample.dart';
 import '../pipeline/run_recorder.dart';
+import 'audio_cue_service.dart';
 
 enum RecordingState { idle, awaitingFix, recording, paused, stopped }
 
 class RecordingService {
   final RunsRepository _runs;
   final Uuid _uuid;
+  final AudioCueService _audio = AudioCueService();
 
   RecordingService(this._runs, {Uuid? uuid}) : _uuid = uuid ?? const Uuid();
 
@@ -24,6 +26,7 @@ class RecordingService {
   StreamSubscription<RunSample>? _sampleSub;
   Timer? _flushTimer;
   String? _runId;
+  bool _wakelockEnabled = false;
 
   final List<RunSample> _buffer = [];
   final List<RunSample> _allSamples = [];
@@ -50,7 +53,10 @@ class RecordingService {
             permission == LocationPermission.whileInUse);
   }
 
-  Future<void> start() async {
+  Future<void> start({
+    bool keepScreenAwake = false,
+    bool audioCues = true,
+  }) async {
     if (_state != RecordingState.idle) return;
     final ok = await ensurePermissions();
     if (!ok) {
@@ -62,7 +68,13 @@ class RecordingService {
     await _runs.createRun(id: _runId!, startedAt: startedAt);
 
     _recorder = RunRecorder()..start();
-    await WakelockPlus.enable();
+    if (keepScreenAwake) {
+      await WakelockPlus.enable();
+      _wakelockEnabled = true;
+    }
+    if (audioCues) {
+      await _audio.start(_recorder!);
+    }
 
     _setState(RecordingState.awaitingFix);
 
@@ -74,6 +86,8 @@ class RecordingService {
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Recording run',
           notificationText: 'Tap to return',
+          // The geolocator wake lock keeps the GPS chip awake. The screen
+          // can still sleep. WiFi lock helps with assisted positioning.
           enableWakeLock: true,
           enableWifiLock: true,
         ),
@@ -145,7 +159,13 @@ class RecordingService {
       encodedPolyline: encoded,
     );
 
-    await WakelockPlus.disable();
+    if (_wakelockEnabled) {
+      await WakelockPlus.disable();
+      _wakelockEnabled = false;
+    }
+    // Speak the summary before tearing the TTS engine down.
+    await _audio.announceFinish(recorder.distanceM, recorder.elapsed);
+    await _audio.stop();
     await recorder.dispose();
 
     final run = await _runs.get(runId);

@@ -42,8 +42,12 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     setState(() => _starting = true);
     try {
       final svc = ref.read(recordingServiceProvider);
+      final prefs = ref.read(userPreferencesProvider);
       if (svc.state == RecordingState.idle) {
-        await svc.start();
+        await svc.start(
+          keepScreenAwake: prefs.keepScreenAwake,
+          audioCues: prefs.audioCuesEnabled,
+        );
       }
     } on StateError catch (e) {
       setState(() => _error = e.message);

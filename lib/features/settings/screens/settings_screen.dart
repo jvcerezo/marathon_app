@@ -136,7 +136,27 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () => _regeneratePlan(context, ref, profile),
               ),
               const SizedBox(height: AppSpacing.xl),
-              const _SectionHeader('Preferences'),
+              const _SectionHeader('During a run'),
+              _ToggleTile(
+                label: 'Audio splits',
+                description:
+                    'Speak distance and pace at every kilometer so you can lock your phone.',
+                value:
+                    ref.watch(userPreferencesProvider).audioCuesEnabled,
+                onChanged: (v) => ref
+                    .read(userPreferencesProvider.notifier)
+                    .setAudioCues(v),
+              ),
+              _ToggleTile(
+                label: 'Keep screen awake',
+                description:
+                    'Recommended OFF for long runs. The screen is the biggest battery drain on a phone; recording continues with the screen off.',
+                value:
+                    ref.watch(userPreferencesProvider).keepScreenAwake,
+                onChanged: (v) => ref
+                    .read(userPreferencesProvider.notifier)
+                    .setKeepScreenAwake(v),
+              ),
               _ToggleTile(
                 label: 'Show map during recording',
                 description:
