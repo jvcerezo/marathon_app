@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/design/tokens.dart';
-import '../../../core/design/widgets/arc_progress.dart';
-import '../../../core/design/widgets/hero_number.dart';
 import '../../../core/design/widgets/section_label.dart';
 import '../../../core/design/widgets/status_pill.dart';
 import '../../../core/format/format.dart';
@@ -14,6 +12,7 @@ import '../../plan/models/training_plan.dart';
 import '../../plan/providers/plan_providers.dart';
 import '../../profile/models/user_profile.dart';
 import '../../profile/providers/profile_providers.dart';
+import '../providers/home_stats_provider.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -21,8 +20,6 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(profileProvider);
-    final todayAsync = ref.watch(todaySessionProvider);
-    final planAsync = ref.watch(activePlanProvider);
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -41,93 +38,91 @@ class HomeScreen extends ConsumerWidget {
             onRefresh: () async {
               ref.invalidate(todaySessionProvider);
               ref.invalidate(activePlanProvider);
+              ref.invalidate(homeStatsProvider);
             },
-            child: CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  pinned: false,
-                  floating: true,
-                  backgroundColor: cs.surface,
-                  elevation: 0,
-                  toolbarHeight: 0,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.huge,
+              ),
+              children: [
+                _Header(profile: profile),
+                const SizedBox(height: AppSpacing.xl),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final today = ref.watch(todaySessionProvider);
+                    return today.when(
+                      loading: () => const _SkeletonHero(),
+                      error: (e, _) => Text('$e'),
+                      data: (s) => _HeroToday(session: s),
+                    );
+                  },
                 ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    AppSpacing.sm,
-                    AppSpacing.lg,
-                    AppSpacing.huge,
-                  ),
-                  sliver: SliverList.list(
-                    children: [
-                      _GreetingHeader(profile: profile),
-                      const SizedBox(height: AppSpacing.xl),
-                      _CountdownCard(profile: profile),
-                      const SizedBox(height: AppSpacing.lg),
-                      todayAsync.when(
-                        loading: () => const _LoadingTile(),
-                        error: (e, _) => _ErrorTile('$e'),
-                        data: (session) => _TodayCard(session: session),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      planAsync.when(
-                        loading: () => const SizedBox.shrink(),
-                        error: (_, __) => const SizedBox.shrink(),
-                        data: (plan) => plan == null
-                            ? const SizedBox.shrink()
-                            : _WeekStrip(plan: plan),
-                      ),
-                    ],
-                  ),
+                const SizedBox(height: AppSpacing.lg),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final stats = ref.watch(homeStatsProvider);
+                    return stats.when(
+                      loading: () => const SizedBox(height: 88),
+                      error: (e, _) => Text('$e'),
+                      data: (s) => _StatsTriad(stats: s),
+                    );
+                  },
                 ),
+                const SizedBox(height: AppSpacing.lg),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final upcomingAsync = ref.watch(upcomingSessionsProvider);
+                    final planAsync = ref.watch(activePlanProvider);
+                    return planAsync.when(
+                      loading: () => const SizedBox.shrink(),
+                      error: (_, __) => const SizedBox.shrink(),
+                      data: (plan) {
+                        if (plan == null) return const SizedBox.shrink();
+                        return upcomingAsync.when(
+                          loading: () => const SizedBox.shrink(),
+                          error: (_, __) => const SizedBox.shrink(),
+                          data: (sessions) => _WeekStrip(
+                            plan: plan,
+                            sessions: sessions.take(7).toList(),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _RaceCountdown(profile: profile),
               ],
             ),
           );
         },
       ),
-      floatingActionButton: todayAsync.maybeWhen(
-        data: (s) {
-          if (s == null || s.type == SessionType.rest) return null;
-          return FloatingActionButton.extended(
-            heroTag: 'startRun',
-            onPressed: () => context.push('/recording'),
-            backgroundColor: cs.primary,
-            foregroundColor: cs.onPrimary,
-            elevation: 0,
-            extendedPadding: const EdgeInsets.symmetric(horizontal: 28),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-            ),
-            icon: const Icon(Icons.play_arrow_rounded, size: 28),
-            label: const Text(
-              'Start run',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-            ),
-          );
-        },
-        orElse: () => null,
-      ),
     );
   }
 }
 
-class _GreetingHeader extends StatelessWidget {
+class _Header extends StatelessWidget {
   final UserProfile profile;
-  const _GreetingHeader({required this.profile});
+  const _Header({required this.profile});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final greeting = greetingFor(DateTime.now());
     final name = profile.firstName;
+    final today = DateTime.now();
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SectionLabel(monthDay(DateTime.now())),
+              SectionLabel(
+                '${shortDayName(today.weekday).toUpperCase()} · ${monthDay(today).toUpperCase()}',
+              ),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 name.isEmpty ? '$greeting.' : '$greeting, $name.',
@@ -136,204 +131,201 @@ class _GreetingHeader extends StatelessWidget {
             ],
           ),
         ),
-        IconButton(
-          onPressed: () {},
-          icon: Icon(Icons.settings_outlined, color: cs.onSurfaceVariant),
+        Material(
+          color: cs.surfaceContainerLow,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () => context.push('/settings'),
+            child: Container(
+              width: 44,
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: cs.outlineVariant),
+              ),
+              child: Text(
+                name.isEmpty ? 'M' : name[0].toUpperCase(),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
+                ),
+              ),
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-class _CountdownCard extends StatelessWidget {
-  final UserProfile profile;
-  const _CountdownCard({required this.profile});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final today = DateTime.now();
-    final daysToRace = profile.targetMarathonDate.difference(today).inDays;
-    // Plan starts 365 days back from race; progress is how far along we are.
-    final totalDays = 365;
-    final daysElapsed = (totalDays - daysToRace).clamp(0, totalDays);
-    final progress = daysElapsed / totalDays;
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Row(
-        children: [
-          ArcProgress(
-            progress: progress,
-            size: 120,
-            strokeWidth: 10,
-            trackColor: cs.surfaceContainerHigh,
-            progressColor: cs.primary,
-            center: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                HeroNumber('$daysToRace', size: 36),
-                Text(
-                  'DAYS',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.4,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.xl),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionLabel('Race day', color: cs.primary),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  monthDay(profile.targetMarathonDate),
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                Text(
-                  '${profile.targetMarathonDate.year}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  '${(progress * 100).round()}% through your plan',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: AppMotion.short);
-  }
-}
-
-class _TodayCard extends StatelessWidget {
+class _HeroToday extends StatelessWidget {
   final PlanSession? session;
-  const _TodayCard({required this.session});
+  const _HeroToday({required this.session});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     if (session == null) {
-      return Container(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(AppRadius.xl),
-          border: Border.all(color: cs.outlineVariant),
-        ),
-        child: Text(
-          'No session scheduled today.',
-          style: Theme.of(context).textTheme.bodyLarge,
-        ),
-      );
+      return _emptyShell(context, 'No session scheduled today.');
     }
-
     final s = session!;
-    final isRest = s.type == SessionType.rest;
+    if (s.type == SessionType.rest) {
+      return _RestHero(session: s);
+    }
     final accent = _accentFor(s.type, cs);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: cs.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Top accent stripe
-          Container(
-            height: 4,
-            decoration: BoxDecoration(
-              color: accent,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(AppRadius.xl),
-              ),
-            ),
+    return Material(
+      color: cs.surfaceContainer,
+      borderRadius: BorderRadius.circular(AppRadius.xxl),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        onTap: () => context.push('/recording'),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.xxl),
+            border: Border.all(color: cs.outlineVariant),
           ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    SectionLabel("Today's session", color: accent),
-                    _StatusPill(status: s.status),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  s.type.label,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                if (isRest) ...[
-                  Text(
-                    'Recovery is part of the plan.',
-                    style: Theme.of(context).textTheme.bodyLarge,
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: accent,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ] else ...[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    'TODAY · ${s.type.label.toUpperCase()}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.6,
+                      color: accent,
+                    ),
+                  ),
+                  const Spacer(),
+                  _SessionStatusPill(status: s.status),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RichText(
+                          text: TextSpan(
+                            style: TextStyle(
+                              fontSize: 88,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -3,
+                              height: 0.95,
+                              color: cs.onSurface,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                            text: s.prescribedDistanceKm
+                                .toStringAsFixed(s.prescribedDistanceKm
+                                            .truncateToDouble() ==
+                                        s.prescribedDistanceKm
+                                    ? 0
+                                    : 1),
+                            children: [
+                              TextSpan(
+                                text: ' km',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (s.prescribedPaceSecPerKm != null) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'target ${formatPace(s.prescribedPaceSecPerKm)}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: cs.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: cs.onPrimary,
+                      size: 36,
+                    ),
+                  ),
+                ],
+              ),
+              if (s.notes != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      HeroNumber(
-                        s.prescribedDistanceKm.toStringAsFixed(1),
-                        unit: 'km',
-                        size: 56,
+                      Icon(Icons.lightbulb_outline,
+                          size: 16, color: cs.onSurfaceVariant),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          s.notes!,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
                       ),
                     ],
                   ),
-                  if (s.prescribedPaceSecPerKm != null) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'Target pace ${formatPace(s.prescribedPaceSecPerKm)}',
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ],
-                  if (s.notes != null) ...[
-                    const SizedBox(height: AppSpacing.lg),
-                    Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                      child: Text(
-                        s.notes!,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ),
-                  ],
-                ],
+                ),
               ],
-            ),
+            ],
           ),
-        ],
+        ),
       ),
-    ).animate().fadeIn(
-          duration: AppMotion.short,
-          delay: const Duration(milliseconds: 80),
-        );
+    ).animate().fadeIn(duration: AppMotion.short).moveY(begin: 8, end: 0);
+  }
+
+  Widget _emptyShell(BuildContext context, String label) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Text(label, style: Theme.of(context).textTheme.bodyLarge),
+    );
   }
 
   Color _accentFor(SessionType t, ColorScheme cs) => switch (t) {
@@ -346,9 +338,54 @@ class _TodayCard extends StatelessWidget {
       };
 }
 
-class _StatusPill extends StatelessWidget {
+class _RestHero extends StatelessWidget {
+  final PlanSession session;
+  const _RestHero({required this.session});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionLabel('TODAY · REST'),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'Take it easy.',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Recovery is when adaptation happens.',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            children: [
+              Icon(Icons.bedtime_outlined, color: cs.onSurfaceVariant),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                'Sleep, hydrate, and stretch.',
+                style: TextStyle(color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SessionStatusPill extends StatelessWidget {
   final SessionStatus status;
-  const _StatusPill({required this.status});
+  const _SessionStatusPill({required this.status});
 
   @override
   Widget build(BuildContext context) {
@@ -357,115 +394,51 @@ class _StatusPill extends StatelessWidget {
       SessionStatus.hit => (AppColors.pulse, 'Hit', Icons.check),
       SessionStatus.partial => (AppColors.warn, 'Partial', null),
       SessionStatus.missed => (AppColors.miss, 'Missed', null),
-      SessionStatus.rest => (Theme.of(context).colorScheme.onSurfaceVariant, 'Rest', null),
+      SessionStatus.rest =>
+        (Theme.of(context).colorScheme.onSurfaceVariant, 'Rest', null),
     };
     return StatusPill(label: label, color: color, icon: icon);
   }
 }
 
-class _WeekStrip extends ConsumerWidget {
-  final TrainingPlan plan;
-  const _WeekStrip({required this.plan});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final upcomingAsync = ref.watch(upcomingSessionsProvider);
-    return upcomingAsync.when(
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (sessions) {
-        if (sessions.isEmpty) return const SizedBox.shrink();
-        final next7 = sessions.take(7).toList();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-              child: const SectionLabel('This week'),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: next7
-                  .map(
-                    (s) => Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 3),
-                        child: _DayCell(session: s),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DayCell extends StatelessWidget {
-  final PlanSession session;
-  const _DayCell({required this.session});
+class _StatsTriad extends StatelessWidget {
+  final HomeStats stats;
+  const _StatsTriad({required this.stats});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final today = DateTime.now();
-    final isToday = session.scheduledDate.year == today.year &&
-        session.scheduledDate.month == today.month &&
-        session.scheduledDate.day == today.day;
-    final accent = switch (session.status) {
-      SessionStatus.hit => AppColors.pulse,
-      SessionStatus.partial => AppColors.warn,
-      SessionStatus.missed => AppColors.miss,
-      _ => cs.surfaceContainerHigh,
-    };
-    final isRest = session.type == SessionType.rest;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        vertical: AppSpacing.md,
-        horizontal: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: isToday ? cs.primaryContainer : cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(
-          color: isToday ? cs.primary : cs.outlineVariant,
-          width: isToday ? 1.5 : 1,
-        ),
-      ),
-      child: Column(
+    return IntrinsicHeight(
+      child: Row(
         children: [
-          Text(
-            shortDayName(session.scheduledDate.weekday)[0],
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
-              color: isToday ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+          Expanded(
+            child: _MiniStat(
+              label: 'Streak',
+              value: '${stats.streakDays}',
+              unit: stats.streakDays == 1 ? 'day' : 'days',
+              accent: AppColors.ember,
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: isRest
-                  ? cs.outlineVariant
-                  : (session.status == SessionStatus.scheduled
-                      ? (isToday ? cs.primary : cs.onSurfaceVariant)
-                      : accent),
-              shape: BoxShape.circle,
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: _MiniStat(
+              label: 'This week',
+              value: stats.thisWeekKm.toStringAsFixed(0),
+              unit: stats.thisWeekTargetKm == 0
+                  ? 'km'
+                  : 'of ${stats.thisWeekTargetKm.toStringAsFixed(0)}',
+              accent: cs.primary,
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            isRest ? '–' : session.prescribedDistanceKm.toStringAsFixed(0),
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: isToday ? cs.onPrimaryContainer : cs.onSurface,
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: _MiniStat(
+              label: 'Adherence',
+              value: stats.total == 0
+                  ? '–'
+                  : '${(stats.adherence * 100).round()}',
+              unit: stats.total == 0 ? '' : '%',
+              accent: AppColors.signal,
             ),
           ),
         ],
@@ -474,34 +447,283 @@ class _DayCell extends StatelessWidget {
   }
 }
 
-class _LoadingTile extends StatelessWidget {
-  const _LoadingTile();
+class _MiniStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+  final Color accent;
+
+  const _MiniStat({
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.accent,
+  });
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Container(
-      height: 140,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md, vertical: AppSpacing.lg,
+      ),
       decoration: BoxDecoration(
         color: cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppRadius.xl),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outlineVariant),
       ),
-      child: const Center(child: CircularProgressIndicator()),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 4,
+            height: 4,
+            decoration: BoxDecoration(
+              color: accent,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          RichText(
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+                color: cs.onSurface,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+              text: value,
+              children: unit.isEmpty
+                  ? null
+                  : [
+                      TextSpan(
+                        text: ' $unit',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _ErrorTile extends StatelessWidget {
-  final String message;
-  const _ErrorTile(this.message);
+class _WeekStrip extends StatelessWidget {
+  final TrainingPlan plan;
+  final List<PlanSession> sessions;
+
+  const _WeekStrip({required this.plan, required this.sessions});
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final today = DateTime.now();
+    final dayOnly = DateTime(today.year, today.month, today.day);
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: AppColors.miss.withValues(alpha: 0.12),
+        color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: cs.outlineVariant),
       ),
-      child: Text(message),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionLabel('Next 7 days'),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: sessions
+                .map((s) => Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: _DayCell(
+                          session: s,
+                          isToday: DateTime(
+                                s.scheduledDate.year,
+                                s.scheduledDate.month,
+                                s.scheduledDate.day,
+                              ) ==
+                              dayOnly,
+                        ),
+                      ),
+                    ))
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DayCell extends StatelessWidget {
+  final PlanSession session;
+  final bool isToday;
+
+  const _DayCell({required this.session, required this.isToday});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isRest = session.type == SessionType.rest;
+    final stateColor = switch (session.status) {
+      SessionStatus.hit => AppColors.pulse,
+      SessionStatus.partial => AppColors.warn,
+      SessionStatus.missed => AppColors.miss,
+      _ => cs.outlineVariant,
+    };
+
+    final fillColor =
+        isToday ? cs.primary : (isRest ? cs.surfaceContainerHigh : stateColor);
+    final textOnFill = isToday
+        ? cs.onPrimary
+        : (isRest ? cs.onSurfaceVariant : AppColors.ink);
+
+    return Column(
+      children: [
+        Text(
+          shortDayName(session.scheduledDate.weekday)[0],
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          '${session.scheduledDate.day}',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Container(
+          height: 32,
+          width: double.infinity,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: fillColor,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          child: Text(
+            isRest ? '–' : session.prescribedDistanceKm.toStringAsFixed(0),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: textOnFill,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RaceCountdown extends StatelessWidget {
+  final UserProfile profile;
+  const _RaceCountdown({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final daysToRace =
+        profile.targetMarathonDate.difference(DateTime.now()).inDays;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.flag_outlined, color: cs.primary, size: 22),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Race day',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${monthDay(profile.targetMarathonDate)}, ${profile.targetMarathonDate.year}',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          RichText(
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+                color: cs.primary,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+              text: '$daysToRace',
+              children: [
+                TextSpan(
+                  text: ' days',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonHero extends StatelessWidget {
+  const _SkeletonHero();
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      height: 220,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: const Center(child: CircularProgressIndicator()),
     );
   }
 }

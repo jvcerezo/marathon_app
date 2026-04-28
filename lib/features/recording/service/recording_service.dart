@@ -10,12 +10,14 @@ import '../../runs/repository/runs_repository.dart';
 import '../models/raw_sample.dart';
 import '../models/run_sample.dart';
 import '../pipeline/run_recorder.dart';
+import 'audio_cue_service.dart';
 
 enum RecordingState { idle, awaitingFix, recording, paused, stopped }
 
 class RecordingService {
   final RunsRepository _runs;
   final Uuid _uuid;
+  final AudioCueService _audio = AudioCueService();
 
   RecordingService(this._runs, {Uuid? uuid}) : _uuid = uuid ?? const Uuid();
 
@@ -24,6 +26,7 @@ class RecordingService {
   StreamSubscription<RunSample>? _sampleSub;
   Timer? _flushTimer;
   String? _runId;
+  bool _wakelockEnabled = false;
 
   final List<RunSample> _buffer = [];
   final List<RunSample> _allSamples = [];
@@ -36,6 +39,7 @@ class RecordingService {
 
   RunRecorder? get recorder => _recorder;
   String? get currentRunId => _runId;
+  List<RunSample> get currentSamples => List.unmodifiable(_allSamples);
 
   Future<bool> ensurePermissions() async {
     var permission = await Geolocator.checkPermission();
@@ -49,7 +53,10 @@ class RecordingService {
             permission == LocationPermission.whileInUse);
   }
 
-  Future<void> start() async {
+  Future<void> start({
+    bool keepScreenAwake = false,
+    bool audioCues = true,
+  }) async {
     if (_state != RecordingState.idle) return;
     final ok = await ensurePermissions();
     if (!ok) {
@@ -61,18 +68,33 @@ class RecordingService {
     await _runs.createRun(id: _runId!, startedAt: startedAt);
 
     _recorder = RunRecorder()..start();
-    await WakelockPlus.enable();
+    if (keepScreenAwake) {
+      await WakelockPlus.enable();
+      _wakelockEnabled = true;
+    }
+    if (audioCues) {
+      await _audio.start(_recorder!);
+    }
 
     _setState(RecordingState.awaitingFix);
 
     _gpsSub = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 1),
+        // `high` is plenty for runners; `bestForNavigation` is tuned for
+        // cars at 100 km/h and draws noticeably more on some chipsets.
+        accuracy: LocationAccuracy.high,
+        // Don't emit samples while the user is standing still (red lights,
+        // water breaks). Auto-pause already kicks in via RunRecorder.
+        distanceFilter: 3,
+        // Every 2 seconds is the standard "battery saver" cadence used by
+        // Strava et al. At 8 m/s we still get a sample every ~16 m, which
+        // simplifies down to the same polyline after Douglas-Peucker.
+        intervalDuration: const Duration(seconds: 2),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Recording run',
           notificationText: 'Tap to return',
+          // The geolocator wake lock keeps the GPS chip awake. The screen
+          // can still sleep. WiFi lock helps with assisted positioning.
           enableWakeLock: true,
           enableWifiLock: true,
         ),
@@ -98,8 +120,11 @@ class RecordingService {
       _allSamples.add(s);
     });
 
+    // 30s flush cadence trades a bit of crash-recovery granularity (we
+    // could lose up to 30s of samples instead of 10s) for noticeably
+    // fewer SQLite wakes on a long run.
     _flushTimer =
-        Timer.periodic(const Duration(seconds: 10), (_) => _flush());
+        Timer.periodic(const Duration(seconds: 30), (_) => _flush());
   }
 
   void pause() {
@@ -144,7 +169,13 @@ class RecordingService {
       encodedPolyline: encoded,
     );
 
-    await WakelockPlus.disable();
+    if (_wakelockEnabled) {
+      await WakelockPlus.disable();
+      _wakelockEnabled = false;
+    }
+    // Speak the summary before tearing the TTS engine down.
+    await _audio.announceFinish(recorder.distanceM, recorder.elapsed);
+    await _audio.stop();
     await recorder.dispose();
 
     final run = await _runs.get(runId);

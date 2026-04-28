@@ -10,6 +10,7 @@ import '../../../core/design/widgets/section_label.dart';
 import '../../../core/design/widgets/stat_tile.dart';
 import '../../../core/format/format.dart';
 import '../../../core/math/polyline.dart';
+import '../../../core/network/cached_tile_provider.dart';
 import '../providers/runs_providers.dart';
 
 class RunDetailScreen extends ConsumerWidget {
@@ -67,6 +68,7 @@ class RunDetailScreen extends ConsumerWidget {
                                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                       userAgentPackageName:
                                           'com.jvcerezo.marathon_app',
+                                      tileProvider: CachedTileProvider(),
                                     ),
                                     PolylineLayer(
                                       polylines: [

@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../../core/design/tokens.dart';
-import '../../../core/design/widgets/hero_number.dart';
 import '../../../core/design/widgets/section_label.dart';
 import '../../../core/design/widgets/status_pill.dart';
 import '../../../core/format/format.dart';
+import '../../../core/math/geo_math.dart';
+import '../../../core/network/cached_tile_provider.dart';
+import '../../../core/preferences/user_preferences.dart';
 import '../../../core/providers/providers.dart';
 import '../../plan/models/plan_session.dart';
+import '../../plan/providers/plan_providers.dart';
+import '../models/run_sample.dart';
 import '../pipeline/run_recorder.dart';
 import '../providers/recording_providers.dart';
 import '../service/recording_service.dart';
@@ -36,8 +42,12 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     setState(() => _starting = true);
     try {
       final svc = ref.read(recordingServiceProvider);
+      final prefs = ref.read(userPreferencesProvider);
       if (svc.state == RecordingState.idle) {
-        await svc.start();
+        await svc.start(
+          keepScreenAwake: prefs.keepScreenAwake,
+          audioCues: prefs.audioCuesEnabled,
+        );
       }
     } on StateError catch (e) {
       setState(() => _error = e.message);
@@ -75,82 +85,58 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     final svc = ref.watch(recordingServiceProvider);
     final recorder = svc.recorder;
 
+    final samples = svc.currentSamples;
+    final showMap = ref.watch(userPreferencesProvider).showMapDuringRecording;
+    final isRecording = stateAsync.value == RecordingState.recording;
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: AppColors.ink,
       ),
-      child: Theme(
-        // Force dark for the recording surface regardless of system theme.
-        data: Theme.of(context),
-        child: Scaffold(
-          backgroundColor: AppColors.ink,
-          body: SafeArea(
-            child: _error != null
-                ? _ErrorView(
-                    message: _error!,
-                    onRetry: () {
-                      setState(() => _error = null);
-                      _start();
+      child: Scaffold(
+        backgroundColor: AppColors.ink,
+        body: _error != null
+            ? SafeArea(
+                child: _ErrorView(
+                  message: _error!,
+                  onRetry: () {
+                    setState(() => _error = null);
+                    _start();
+                  },
+                ),
+              )
+            : showMap
+                ? _MapLayout(
+                    samples: samples,
+                    isRecording: isRecording,
+                    state: stateAsync.value,
+                    recorder: recorder,
+                    starting: _starting,
+                    onClose: () => _confirmExit(context, svc),
+                    onPauseToggle: () {
+                      if (stateAsync.value == RecordingState.paused) {
+                        svc.resume();
+                      } else {
+                        svc.pause();
+                      }
                     },
+                    onFinish: _stop,
                   )
-                : Column(
-                    children: [
-                      _TopBar(
-                        state: stateAsync.value,
-                        onClose: () => _confirmExit(context, svc),
-                      ),
-                      Expanded(
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SectionLabel(
-                                'Distance',
-                                color: AppColors.fog,
-                              ),
-                              const SizedBox(height: AppSpacing.md),
-                              HeroNumber(
-                                recorder == null
-                                    ? '0.00'
-                                    : (recorder.distanceM / 1000.0)
-                                        .toStringAsFixed(2),
-                                size: 120,
-                                color: AppColors.bone,
-                                align: TextAlign.center,
-                              ).animate().fadeIn(duration: AppMotion.short),
-                              const SizedBox(height: AppSpacing.sm),
-                              Text(
-                                'kilometers',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 1.2,
-                                  color: AppColors.fog,
-                                ),
-                              ),
-                              const SizedBox(height: AppSpacing.xxxl),
-                              _BottomStats(recorder: recorder),
-                            ],
-                          ),
-                        ),
-                      ),
-                      _Controls(
-                        state: stateAsync.value,
-                        starting: _starting,
-                        onPauseToggle: () {
-                          if (stateAsync.value == RecordingState.paused) {
-                            svc.resume();
-                          } else {
-                            svc.pause();
-                          }
-                        },
-                        onFinish: _stop,
-                      ),
-                    ],
+                : _NoMapLayout(
+                    state: stateAsync.value,
+                    recorder: recorder,
+                    starting: _starting,
+                    onClose: () => _confirmExit(context, svc),
+                    onPauseToggle: () {
+                      if (stateAsync.value == RecordingState.paused) {
+                        svc.resume();
+                      } else {
+                        svc.pause();
+                      }
+                    },
+                    onFinish: _stop,
                   ),
-          ),
-        ),
       ),
     );
   }
@@ -256,15 +242,31 @@ class _StateChip extends StatelessWidget {
 
 class _BottomStats extends StatelessWidget {
   final RunRecorder? recorder;
-  const _BottomStats({required this.recorder});
+  final PlanSession? session;
+  const _BottomStats({required this.recorder, this.session});
+
+  double? _currentPaceSecPerKm() {
+    if (recorder == null || recorder!.distanceM < 50) return null;
+    return recorder!.elapsed.inSeconds / (recorder!.distanceM / 1000.0);
+  }
 
   String _avgPace() {
-    if (recorder == null || recorder!.distanceM < 50) return '--:--';
-    final paceSecPerKm =
-        recorder!.elapsed.inSeconds / (recorder!.distanceM / 1000.0);
-    final mins = paceSecPerKm ~/ 60;
-    final secs = (paceSecPerKm - mins * 60).round();
+    final p = _currentPaceSecPerKm();
+    if (p == null) return '--:--';
+    final mins = p ~/ 60;
+    final secs = (p - mins * 60).round();
     return '$mins:${secs.toString().padLeft(2, '0')}';
+  }
+
+  /// Returns the current pace zone vs prescribed: -1 too slow, 0 in zone, 1 too fast.
+  int? _paceZone() {
+    final p = _currentPaceSecPerKm();
+    final target = session?.prescribedPaceSecPerKm;
+    if (p == null || target == null) return null;
+    const tolerance = 20; // 20 sec/km on either side counts as "in zone"
+    if (p < target - tolerance) return 1; // running faster than target
+    if (p > target + tolerance) return -1; // slower than target
+    return 0;
   }
 
   String _elapsed() => recorder == null
@@ -274,7 +276,6 @@ class _BottomStats extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
       padding: const EdgeInsets.symmetric(
         vertical: AppSpacing.lg,
         horizontal: AppSpacing.lg,
@@ -293,7 +294,24 @@ class _BottomStats extends StatelessWidget {
             color: AppColors.iron,
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           ),
-          Expanded(child: _Stat(label: 'Pace', value: _avgPace())),
+          Expanded(
+            child: _Stat(
+              label: 'Pace',
+              value: _avgPace(),
+              accentColor: switch (_paceZone()) {
+                0 => AppColors.pulse,
+                1 => AppColors.signal,
+                -1 => AppColors.warn,
+                _ => null,
+              },
+              hint: switch (_paceZone()) {
+                0 => 'in zone',
+                1 => 'too fast',
+                -1 => 'pick it up',
+                _ => null,
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -303,7 +321,15 @@ class _BottomStats extends StatelessWidget {
 class _Stat extends StatelessWidget {
   final String label;
   final String value;
-  const _Stat({required this.label, required this.value});
+  final Color? accentColor;
+  final String? hint;
+
+  const _Stat({
+    required this.label,
+    required this.value,
+    this.accentColor,
+    this.hint,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -314,12 +340,116 @@ class _Stat extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.w800,
             letterSpacing: -0.5,
-            color: AppColors.bone,
-            fontFeatures: [FontFeature.tabularFigures()],
+            color: accentColor ?? AppColors.bone,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        if (hint != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            hint!,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+              color: accentColor ?? AppColors.fog,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _TargetBanner extends StatelessWidget {
+  final PlanSession? session;
+  const _TargetBanner({required this.session});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+    if (s == null || s.type == SessionType.rest) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg, vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.slate,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: AppColors.iron),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.flag_outlined, size: 14, color: AppColors.fog),
+          const SizedBox(width: 6),
+          Text(
+            "Today's target: ${s.prescribedDistanceKm.toStringAsFixed(s.prescribedDistanceKm.truncateToDouble() == s.prescribedDistanceKm ? 0 : 1)} km"
+            "${s.prescribedPaceSecPerKm == null ? '' : ' @ ${formatPace(s.prescribedPaceSecPerKm)}'}",
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppColors.mist,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TargetProgress extends StatelessWidget {
+  final PlanSession? session;
+  final double currentKm;
+
+  const _TargetProgress({required this.session, required this.currentKm});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+    if (s == null ||
+        s.type == SessionType.rest ||
+        s.prescribedDistanceKm <= 0) {
+      return const SizedBox.shrink();
+    }
+    final progress =
+        (currentKm / s.prescribedDistanceKm).clamp(0.0, 1.0).toDouble();
+    final reached = currentKm >= s.prescribedDistanceKm;
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: SizedBox(
+            height: 4,
+            child: Stack(
+              children: [
+                Container(color: AppColors.iron),
+                FractionallySizedBox(
+                  widthFactor: progress,
+                  child: Container(
+                    color: reached ? AppColors.pulse : AppColors.bone,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          reached
+              ? 'Target hit. Cool down or keep going.'
+              : '${(progress * 100).round()}% to ${s.prescribedDistanceKm.toStringAsFixed(s.prescribedDistanceKm.truncateToDouble() == s.prescribedDistanceKm ? 0 : 1)} km',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: reached ? AppColors.pulse : AppColors.fog,
           ),
         ),
       ],
@@ -343,26 +473,21 @@ class _Controls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isPaused = state == RecordingState.paused;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xxl,
-      ),
-      child: Row(
-        children: [
-          _CircleButton(
-            onTap: starting ? null : onPauseToggle,
-            icon: isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-            color: AppColors.iron,
-            iconColor: AppColors.bone,
+    return Row(
+      children: [
+        _CircleButton(
+          onTap: starting ? null : onPauseToggle,
+          icon: isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+          color: AppColors.iron,
+          iconColor: AppColors.bone,
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: _LongPressFinish(
+            onComplete: starting ? null : onFinish,
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: _LongPressFinish(
-              onComplete: starting ? null : onFinish,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -516,6 +641,411 @@ class _ErrorView extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MapLayout extends StatelessWidget {
+  final List<RunSample> samples;
+  final bool isRecording;
+  final RecordingState? state;
+  final RunRecorder? recorder;
+  final bool starting;
+  final VoidCallback onClose;
+  final VoidCallback onPauseToggle;
+  final VoidCallback onFinish;
+
+  const _MapLayout({
+    required this.samples,
+    required this.isRecording,
+    required this.state,
+    required this.recorder,
+    required this.starting,
+    required this.onClose,
+    required this.onPauseToggle,
+    required this.onFinish,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Expanded(
+          flex: 5,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: _LiveMap(
+                  samples: samples,
+                  isRecording: isRecording,
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 48,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          AppColors.ink.withValues(alpha: 0),
+                          AppColors.ink,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SafeArea(
+                bottom: false,
+                child: _TopBar(state: state, onClose: onClose),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          flex: 6,
+          child: SafeArea(
+            top: false,
+            child: _BottomPanel(
+              recorder: recorder,
+              state: state,
+              starting: starting,
+              onPauseToggle: onPauseToggle,
+              onFinish: onFinish,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NoMapLayout extends StatelessWidget {
+  final RecordingState? state;
+  final RunRecorder? recorder;
+  final bool starting;
+  final VoidCallback onClose;
+  final VoidCallback onPauseToggle;
+  final VoidCallback onFinish;
+
+  const _NoMapLayout({
+    required this.state,
+    required this.recorder,
+    required this.starting,
+    required this.onClose,
+    required this.onPauseToggle,
+    required this.onFinish,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        children: [
+          _TopBar(state: state, onClose: onClose),
+          Expanded(
+            child: _BottomPanel(
+              recorder: recorder,
+              state: state,
+              starting: starting,
+              onPauseToggle: onPauseToggle,
+              onFinish: onFinish,
+              extraDistanceSize: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Live map view that pans to follow the user as samples come in.
+/// Renders the route as a polyline and a marker at the latest position.
+class _LiveMap extends StatefulWidget {
+  final List<RunSample> samples;
+  final bool isRecording;
+  const _LiveMap({required this.samples, required this.isRecording});
+
+  @override
+  State<_LiveMap> createState() => _LiveMapState();
+}
+
+class _LiveMapState extends State<_LiveMap> {
+  final MapController _controller = MapController();
+  static const double _zoom = 16.5;
+  static const double _recenterThresholdM = 10;
+  static const Duration _recenterMaxInterval = Duration(seconds: 5);
+
+  bool _initialCentered = false;
+  LatLng? _lastCenteredAt;
+  DateTime? _lastCenteredTime;
+
+  @override
+  void didUpdateWidget(_LiveMap old) {
+    super.didUpdateWidget(old);
+    final samples = widget.samples;
+    if (samples.isEmpty) return;
+    final last = samples.last;
+    final target = LatLng(last.lat, last.lon);
+
+    if (_initialCentered) {
+      // Skip a recenter if the camera is already close to the user and
+      // we centered recently — saves CPU and tile fetches on tiny GPS jitter.
+      final lastCenter = _lastCenteredAt;
+      final lastTime = _lastCenteredTime;
+      if (lastCenter != null && lastTime != null) {
+        final movedM = haversineMeters(
+          lastCenter.latitude, lastCenter.longitude,
+          target.latitude, target.longitude,
+        );
+        final elapsed = DateTime.now().difference(lastTime);
+        if (movedM < _recenterThresholdM && elapsed < _recenterMaxInterval) {
+          return;
+        }
+      }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        if (!_initialCentered) {
+          _controller.move(target, _zoom);
+          _initialCentered = true;
+        } else {
+          _controller.move(target, _controller.camera.zoom);
+        }
+        _lastCenteredAt = target;
+        _lastCenteredTime = DateTime.now();
+      } catch (_) {
+        // Controller not yet attached; ignore until next tick.
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final points = widget.samples
+        .map((s) => LatLng(s.lat, s.lon))
+        .toList(growable: false);
+    final initial = points.isEmpty ? const LatLng(14.5995, 120.9842) : points.first;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: FlutterMap(
+            mapController: _controller,
+            options: MapOptions(
+              initialCenter: initial,
+              initialZoom: _zoom,
+              minZoom: 12,
+              maxZoom: 19,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.none,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.jvcerezo.marathon_app',
+                tileProvider: CachedTileProvider(),
+              ),
+              if (points.length >= 2)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: points,
+                      strokeWidth: 6,
+                      color: AppColors.pulse,
+                      borderColor: AppColors.ink,
+                      borderStrokeWidth: 2,
+                    ),
+                  ],
+                ),
+              if (points.isNotEmpty)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: points.last,
+                      width: 28,
+                      height: 28,
+                      child: _LocationDot(animated: widget.isRecording),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        if (points.isEmpty) const _AcquiringOverlay(),
+      ],
+    );
+  }
+}
+
+class _LocationDot extends StatelessWidget {
+  final bool animated;
+  const _LocationDot({required this.animated});
+
+  @override
+  Widget build(BuildContext context) {
+    final halo = Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: AppColors.pulse.withValues(alpha: 0.3),
+        shape: BoxShape.circle,
+      ),
+    );
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        if (animated)
+          halo.animate(onPlay: (c) => c.repeat()).scaleXY(
+                begin: 0.6,
+                end: 1.6,
+                duration: const Duration(milliseconds: 1400),
+                curve: Curves.easeOut,
+              ).fadeOut(
+                begin: 0.7,
+                duration: const Duration(milliseconds: 1400),
+              ),
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: AppColors.pulse,
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.ink, width: 2),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AcquiringOverlay extends StatelessWidget {
+  const _AcquiringOverlay();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.shade,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+              color: AppColors.pulse,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Acquiring GPS...',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+              color: AppColors.fog,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom panel: target capsule, distance hero, target progress, stats,
+/// pause + finish controls.
+class _BottomPanel extends ConsumerWidget {
+  final RunRecorder? recorder;
+  final RecordingState? state;
+  final bool starting;
+  final VoidCallback onPauseToggle;
+  final VoidCallback onFinish;
+  final bool extraDistanceSize;
+
+  const _BottomPanel({
+    required this.recorder,
+    required this.state,
+    required this.starting,
+    required this.onPauseToggle,
+    required this.onFinish,
+    this.extraDistanceSize = false,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final today = ref.watch(todaySessionProvider);
+    final session = today.maybeWhen(data: (s) => s, orElse: () => null);
+    final currentKm = (recorder?.distanceM ?? 0) / 1000.0;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xl,
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            children: [
+              if (session != null && session.type != SessionType.rest)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                  child: _TargetBanner(session: session),
+                ),
+              SectionLabel('Distance', color: AppColors.fog),
+              const SizedBox(height: AppSpacing.sm),
+              RichText(
+                text: TextSpan(
+                  style: TextStyle(
+                    fontSize: extraDistanceSize ? 120 : 84,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: extraDistanceSize ? -4 : -3,
+                    height: 0.95,
+                    color: AppColors.bone,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                  text: currentKm.toStringAsFixed(2),
+                  children: [
+                    TextSpan(
+                      text: ' km',
+                      style: TextStyle(
+                        fontSize: extraDistanceSize ? 22 : 18,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                        color: AppColors.fog,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (session != null && session.type != SessionType.rest)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.md),
+                  child: _TargetProgress(
+                    session: session,
+                    currentKm: currentKm,
+                  ),
+                ),
+            ],
+          ),
+          _BottomStats(recorder: recorder, session: session),
+          _Controls(
+            state: state,
+            starting: starting,
+            onPauseToggle: onPauseToggle,
+            onFinish: onFinish,
+          ),
+        ],
       ),
     );
   }

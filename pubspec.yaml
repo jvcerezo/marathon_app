@@ -36,9 +36,13 @@ dependencies:
   permission_handler: ^11.3.1
   wakelock_plus: ^1.2.8
 
+  # Audio splits (lets users lock the phone while running)
+  flutter_tts: ^4.2.0
+
   # Map rendering (free tiles via OSM)
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  cached_network_image: ^3.4.1
 
   # Charts
   fl_chart: ^1.2.0

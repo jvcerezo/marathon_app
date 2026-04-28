@@ -7,6 +7,7 @@ import '../../features/progress/screens/progress_screen.dart';
 import '../../features/recording/screens/recording_screen.dart';
 import '../../features/runs/screens/run_detail_screen.dart';
 import '../../features/runs/screens/runs_history_screen.dart';
+import '../../features/settings/screens/settings_screen.dart';
 import '../../features/shell/shell_screen.dart';
 
 final appRouter = GoRouter(
@@ -24,6 +25,10 @@ final appRouter = GoRouter(
       path: '/runs/:id',
       builder: (_, state) =>
           RunDetailScreen(runId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/settings',
+      builder: (_, __) => const SettingsScreen(),
     ),
     ShellRoute(
       builder: (_, __, child) => ShellScreen(child: child),
