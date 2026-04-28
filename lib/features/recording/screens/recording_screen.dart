@@ -11,6 +11,7 @@ import '../../../core/design/widgets/status_pill.dart';
 import '../../../core/format/format.dart';
 import '../../../core/providers/providers.dart';
 import '../../plan/models/plan_session.dart';
+import '../../plan/providers/plan_providers.dart';
 import '../pipeline/run_recorder.dart';
 import '../providers/recording_providers.dart';
 import '../service/recording_service.dart';
@@ -105,6 +106,17 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
+                              Consumer(
+                                builder: (context, ref, _) {
+                                  final today =
+                                      ref.watch(todaySessionProvider);
+                                  return today.maybeWhen(
+                                    data: (s) => _TargetBanner(session: s),
+                                    orElse: () => const SizedBox.shrink(),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: AppSpacing.lg),
                               SectionLabel(
                                 'Distance',
                                 color: AppColors.fog,
@@ -129,8 +141,36 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                                   color: AppColors.fog,
                                 ),
                               ),
-                              const SizedBox(height: AppSpacing.xxxl),
-                              _BottomStats(recorder: recorder),
+                              const SizedBox(height: AppSpacing.lg),
+                              Consumer(
+                                builder: (context, ref, _) {
+                                  final today =
+                                      ref.watch(todaySessionProvider);
+                                  return today.maybeWhen(
+                                    data: (s) => _TargetProgress(
+                                      session: s,
+                                      currentKm: (recorder?.distanceM ?? 0) /
+                                          1000.0,
+                                    ),
+                                    orElse: () => const SizedBox.shrink(),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: AppSpacing.xxl),
+                              Consumer(
+                                builder: (context, ref, _) {
+                                  final today =
+                                      ref.watch(todaySessionProvider);
+                                  return today.maybeWhen(
+                                    data: (s) => _BottomStats(
+                                      recorder: recorder,
+                                      session: s,
+                                    ),
+                                    orElse: () =>
+                                        _BottomStats(recorder: recorder),
+                                  );
+                                },
+                              ),
                             ],
                           ),
                         ),
@@ -256,15 +296,31 @@ class _StateChip extends StatelessWidget {
 
 class _BottomStats extends StatelessWidget {
   final RunRecorder? recorder;
-  const _BottomStats({required this.recorder});
+  final PlanSession? session;
+  const _BottomStats({required this.recorder, this.session});
+
+  double? _currentPaceSecPerKm() {
+    if (recorder == null || recorder!.distanceM < 50) return null;
+    return recorder!.elapsed.inSeconds / (recorder!.distanceM / 1000.0);
+  }
 
   String _avgPace() {
-    if (recorder == null || recorder!.distanceM < 50) return '--:--';
-    final paceSecPerKm =
-        recorder!.elapsed.inSeconds / (recorder!.distanceM / 1000.0);
-    final mins = paceSecPerKm ~/ 60;
-    final secs = (paceSecPerKm - mins * 60).round();
+    final p = _currentPaceSecPerKm();
+    if (p == null) return '--:--';
+    final mins = p ~/ 60;
+    final secs = (p - mins * 60).round();
     return '$mins:${secs.toString().padLeft(2, '0')}';
+  }
+
+  /// Returns the current pace zone vs prescribed: -1 too slow, 0 in zone, 1 too fast.
+  int? _paceZone() {
+    final p = _currentPaceSecPerKm();
+    final target = session?.prescribedPaceSecPerKm;
+    if (p == null || target == null) return null;
+    const tolerance = 20; // 20 sec/km on either side counts as "in zone"
+    if (p < target - tolerance) return 1; // running faster than target
+    if (p > target + tolerance) return -1; // slower than target
+    return 0;
   }
 
   String _elapsed() => recorder == null
@@ -293,7 +349,24 @@ class _BottomStats extends StatelessWidget {
             color: AppColors.iron,
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           ),
-          Expanded(child: _Stat(label: 'Pace', value: _avgPace())),
+          Expanded(
+            child: _Stat(
+              label: 'Pace',
+              value: _avgPace(),
+              accentColor: switch (_paceZone()) {
+                0 => AppColors.pulse,
+                1 => AppColors.signal,
+                -1 => AppColors.warn,
+                _ => null,
+              },
+              hint: switch (_paceZone()) {
+                0 => 'in zone',
+                1 => 'too fast',
+                -1 => 'pick it up',
+                _ => null,
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -303,7 +376,15 @@ class _BottomStats extends StatelessWidget {
 class _Stat extends StatelessWidget {
   final String label;
   final String value;
-  const _Stat({required this.label, required this.value});
+  final Color? accentColor;
+  final String? hint;
+
+  const _Stat({
+    required this.label,
+    required this.value,
+    this.accentColor,
+    this.hint,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -314,15 +395,123 @@ class _Stat extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.w800,
             letterSpacing: -0.5,
-            color: AppColors.bone,
-            fontFeatures: [FontFeature.tabularFigures()],
+            color: accentColor ?? AppColors.bone,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
+        if (hint != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            hint!,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+              color: accentColor ?? AppColors.fog,
+            ),
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _TargetBanner extends StatelessWidget {
+  final PlanSession? session;
+  const _TargetBanner({required this.session});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+    if (s == null || s.type == SessionType.rest) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg, vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.slate,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: AppColors.iron),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.flag_outlined, size: 14, color: AppColors.fog),
+          const SizedBox(width: 6),
+          Text(
+            "Today's target: ${s.prescribedDistanceKm.toStringAsFixed(s.prescribedDistanceKm.truncateToDouble() == s.prescribedDistanceKm ? 0 : 1)} km"
+            "${s.prescribedPaceSecPerKm == null ? '' : ' @ ${formatPace(s.prescribedPaceSecPerKm)}'}",
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppColors.mist,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TargetProgress extends StatelessWidget {
+  final PlanSession? session;
+  final double currentKm;
+
+  const _TargetProgress({required this.session, required this.currentKm});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+    if (s == null ||
+        s.type == SessionType.rest ||
+        s.prescribedDistanceKm <= 0) {
+      return const SizedBox.shrink();
+    }
+    final progress =
+        (currentKm / s.prescribedDistanceKm).clamp(0.0, 1.0).toDouble();
+    final reached = currentKm >= s.prescribedDistanceKm;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: SizedBox(
+              height: 4,
+              child: Stack(
+                children: [
+                  Container(color: AppColors.iron),
+                  FractionallySizedBox(
+                    widthFactor: progress,
+                    child: Container(
+                      color: reached ? AppColors.pulse : AppColors.bone,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            reached
+                ? 'Target hit. Cool down or keep going.'
+                : '${(progress * 100).round()}% to ${s.prescribedDistanceKm.toStringAsFixed(s.prescribedDistanceKm.truncateToDouble() == s.prescribedDistanceKm ? 0 : 1)} km',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+              color: reached ? AppColors.pulse : AppColors.fog,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
