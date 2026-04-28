@@ -1,5 +1,13 @@
 import 'plan_session.dart';
 
+enum PlanType {
+  race,
+  maintenance,
+  // The "break" state is represented as the absence of an active plan,
+  // not a plan with type=break. Keeping the enum to two values means we
+  // never accidentally show sessions during a break.
+}
+
 class TrainingPlan {
   final String id;
   final String userId;
@@ -8,6 +16,7 @@ class TrainingPlan {
   final int totalWeeks;
   final double startVdot;
   final double targetVdot;
+  final PlanType type;
   final List<PlanSession> sessions;
 
   const TrainingPlan({
@@ -19,6 +28,7 @@ class TrainingPlan {
     required this.startVdot,
     required this.targetVdot,
     required this.sessions,
+    this.type = PlanType.race,
   });
 
   PlanSession? sessionForDate(DateTime date) {

@@ -2,17 +2,74 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../../core/design/tokens.dart';
 import '../../../core/design/widgets/section_label.dart';
 import '../../../core/design/widgets/status_pill.dart';
 import '../../../core/format/format.dart';
+import '../../../core/providers/providers.dart';
 import '../../plan/models/plan_session.dart';
 import '../../plan/models/training_plan.dart';
+import '../../plan/plan_state.dart';
 import '../../plan/providers/plan_providers.dart';
+import '../../plan/widgets/new_goal_sheet.dart';
 import '../../profile/models/user_profile.dart';
 import '../../profile/providers/profile_providers.dart';
 import '../providers/home_stats_provider.dart';
+
+List<Widget> _bodyForState(
+  BuildContext context,
+  WidgetRef ref,
+  UserProfile profile,
+  PlanState state,
+) {
+  final header = _Header(profile: profile);
+  switch (state.phase) {
+    case PlanPhase.none:
+      return [
+        header,
+        const SizedBox(height: AppSpacing.xl),
+        const _NoPlanBanner(),
+      ];
+    case PlanPhase.complete:
+      return [
+        header,
+        const SizedBox(height: AppSpacing.xl),
+        _CompleteBanner(profile: profile, daysSince: state.daysSinceRace ?? 0),
+      ];
+    case PlanPhase.recovery:
+      return [
+        header,
+        const SizedBox(height: AppSpacing.xl),
+        _RecoveryHero(daysSince: state.daysSinceRace ?? 0),
+        const SizedBox(height: AppSpacing.lg),
+        _StatsForState(),
+      ];
+    case PlanPhase.raceDay:
+      return [
+        header,
+        const SizedBox(height: AppSpacing.xl),
+        _RaceDayHero(profile: profile),
+      ];
+    case PlanPhase.raceWeek:
+    case PlanPhase.preRace:
+    case PlanPhase.maintenance:
+      return [
+        header,
+        const SizedBox(height: AppSpacing.xl),
+        _TodayHeroLoader(state: state),
+        const SizedBox(height: AppSpacing.lg),
+        _StatsForState(),
+        const SizedBox(height: AppSpacing.lg),
+        _WeekStripLoader(),
+        if (state.phase != PlanPhase.maintenance) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _RaceCountdown(profile: profile),
+        ],
+      ];
+  }
+}
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -39,61 +96,25 @@ class HomeScreen extends ConsumerWidget {
               ref.invalidate(todaySessionProvider);
               ref.invalidate(activePlanProvider);
               ref.invalidate(homeStatsProvider);
+              ref.invalidate(planStateProvider);
             },
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.fabSafe,
-              ),
-              children: [
-                _Header(profile: profile),
-                const SizedBox(height: AppSpacing.xl),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final today = ref.watch(todaySessionProvider);
-                    return today.when(
-                      loading: () => const _SkeletonHero(),
-                      error: (e, _) => Text('$e'),
-                      data: (s) => _HeroToday(session: s),
-                    );
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final stats = ref.watch(homeStatsProvider);
-                    return stats.when(
-                      loading: () => const SizedBox(height: 88),
-                      error: (e, _) => Text('$e'),
-                      data: (s) => _StatsTriad(stats: s),
-                    );
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final upcomingAsync = ref.watch(upcomingSessionsProvider);
-                    final planAsync = ref.watch(activePlanProvider);
-                    return planAsync.when(
-                      loading: () => const SizedBox.shrink(),
-                      error: (_, __) => const SizedBox.shrink(),
-                      data: (plan) {
-                        if (plan == null) return const SizedBox.shrink();
-                        return upcomingAsync.when(
-                          loading: () => const SizedBox.shrink(),
-                          error: (_, __) => const SizedBox.shrink(),
-                          data: (sessions) => _WeekStrip(
-                            plan: plan,
-                            sessions: sessions.take(7).toList(),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                _RaceCountdown(profile: profile),
-              ],
+            child: Consumer(
+              builder: (context, ref, _) {
+                final stateAsync = ref.watch(planStateProvider);
+                return stateAsync.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Center(child: Text('$e')),
+                  data: (state) => ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg, AppSpacing.lg, AppSpacing.lg,
+                      AppSpacing.fabSafe,
+                    ),
+                    children: _bodyForState(context, ref, profile, state),
+                  ),
+                );
+              },
             ),
           );
         },
@@ -724,6 +745,534 @@ class _SkeletonHero extends StatelessWidget {
         border: Border.all(color: cs.outlineVariant),
       ),
       child: const Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+// =================== STATE-AWARE WRAPPERS ===================
+
+class _TodayHeroLoader extends ConsumerWidget {
+  final PlanState state;
+  const _TodayHeroLoader({required this.state});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final today = ref.watch(todaySessionProvider);
+    final stateBadge = switch (state.phase) {
+      PlanPhase.raceWeek =>
+        _StateBadge('RACE WEEK', AppColors.ember, PhosphorIconsRegular.flag),
+      PlanPhase.maintenance =>
+        _StateBadge('MAINTENANCE', AppColors.signal, PhosphorIconsRegular.heartbeat),
+      _ => null,
+    };
+    return today.when(
+      loading: () => const _SkeletonHero(),
+      error: (e, _) => Text('$e'),
+      data: (s) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (stateBadge != null) ...[
+            stateBadge,
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          _HeroToday(session: s),
+        ],
+      ),
+    );
+  }
+}
+
+class _StateBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+  final IconData icon;
+  const _StateBadge(this.label, this.color, this.icon);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md, vertical: 6,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.4,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatsForState extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stats = ref.watch(homeStatsProvider);
+    return stats.when(
+      loading: () => const SizedBox(height: 88),
+      error: (e, _) => Text('$e'),
+      data: (s) => _StatsTriad(stats: s),
+    );
+  }
+}
+
+class _WeekStripLoader extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final upcomingAsync = ref.watch(upcomingSessionsProvider);
+    final planAsync = ref.watch(activePlanProvider);
+    return planAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (plan) {
+        if (plan == null) return const SizedBox.shrink();
+        return upcomingAsync.when(
+          loading: () => const SizedBox.shrink(),
+          error: (_, __) => const SizedBox.shrink(),
+          data: (sessions) => _WeekStrip(
+            plan: plan,
+            sessions: sessions.take(7).toList(),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// =================== POST-RACE STATES ===================
+
+class _RaceDayHero extends StatelessWidget {
+  final UserProfile profile;
+  const _RaceDayHero({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.ember.withValues(alpha: 0.25),
+            AppColors.ember.withValues(alpha: 0.06),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        border: Border.all(color: AppColors.ember.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: AppColors.ember.withValues(alpha: 0.25),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  PhosphorIconsDuotone.medal,
+                  color: AppColors.ember,
+                  size: 36,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SectionLabel('TODAY · RACE DAY', color: AppColors.ember),
+                    const SizedBox(height: 4),
+                    Text(
+                      'It\'s race day.',
+                      style: const TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.6,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            profile.name.isEmpty
+                ? 'A whole training cycle led here. Trust the work.'
+                : '${profile.firstName}, a whole training cycle led here. Trust the work.',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            children: [
+              Icon(PhosphorIconsRegular.ruler, size: 16, color: cs.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                '${profile.goalDistance.km.toStringAsFixed(profile.goalDistance.km == profile.goalDistance.km.truncateToDouble() ? 0 : 2)} km',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.lg),
+              Icon(PhosphorIconsRegular.flag, size: 16, color: cs.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                profile.goalDistance.label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: AppMotion.short);
+  }
+}
+
+class _RecoveryHero extends StatelessWidget {
+  final int daysSince;
+  const _RecoveryHero({required this.daysSince});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final daysToReboot = (7 - daysSince).clamp(0, 7);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(PhosphorIconsDuotone.bed, color: cs.primary, size: 24),
+              const SizedBox(width: 8),
+              SectionLabel('RECOVERY WEEK', color: cs.primary),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            "Race is done. Take it easy.",
+            style: const TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.5,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            "Walk, easy spin, sleep. No prescribed sessions until your body's back. We'll prompt you for what's next in $daysToReboot ${daysToReboot == 1 ? 'day' : 'days'}.",
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              height: 6,
+              child: Stack(
+                children: [
+                  Container(color: cs.surfaceContainerHigh),
+                  FractionallySizedBox(
+                    widthFactor: (daysSince / 7).clamp(0, 1).toDouble(),
+                    child: Container(color: cs.primary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompleteBanner extends ConsumerWidget {
+  final UserProfile profile;
+  final int daysSince;
+  const _CompleteBanner({required this.profile, required this.daysSince});
+
+  Future<void> _planAnotherRace(
+      BuildContext context, WidgetRef ref) async {
+    final ok = await showNewGoalSheet(context, profile);
+    if (ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('New plan generated.')),
+      );
+    }
+  }
+
+  Future<void> _maintainFitness(
+      BuildContext context, WidgetRef ref) async {
+    final engine = ref.read(planEngineProvider);
+    final plan = engine.generateMaintenance(profile);
+    await ref.read(planRepositoryProvider).save(plan);
+    ref.invalidate(activePlanProvider);
+    ref.invalidate(todaySessionProvider);
+    ref.invalidate(upcomingSessionsProvider);
+    ref.invalidate(planStateProvider);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Maintenance plan started.')),
+      );
+    }
+  }
+
+  Future<void> _takeBreak(BuildContext context, WidgetRef ref) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Take a break?'),
+        content: const Text(
+          "We'll clear your training plan. Recording still works for ad-hoc runs. Come back any time and pick a new goal.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(c).pop(true),
+            child: const Text('Take a break'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await ref.read(planRepositoryProvider).clearActive();
+    ref.invalidate(activePlanProvider);
+    ref.invalidate(todaySessionProvider);
+    ref.invalidate(upcomingSessionsProvider);
+    ref.invalidate(planStateProvider);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                cs.primary.withValues(alpha: 0.18),
+                cs.primary.withValues(alpha: 0.04),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(AppRadius.xxl),
+            border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(PhosphorIconsDuotone.medal, color: cs.primary, size: 36),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Plan complete.',
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.6,
+                  height: 1.1,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                "You wrapped a full ${profile.goalDistance.label} cycle. What's next?",
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _ChoiceTile(
+          icon: PhosphorIconsDuotone.flag,
+          accent: cs.primary,
+          title: 'Plan another race',
+          subtitle: 'Pick a new distance and date. Your fitness carries forward.',
+          onTap: () => _planAnotherRace(context, ref),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _ChoiceTile(
+          icon: PhosphorIconsDuotone.heartbeat,
+          accent: AppColors.signal,
+          title: 'Maintain fitness',
+          subtitle: 'Open-ended easy plan. Hold the gains, no race pressure.',
+          onTap: () => _maintainFitness(context, ref),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _ChoiceTile(
+          icon: PhosphorIconsDuotone.coffee,
+          accent: AppColors.fog,
+          title: 'Take a break',
+          subtitle: 'Clear your plan. Come back when you\'re ready.',
+          onTap: () => _takeBreak(context, ref),
+        ),
+      ],
+    );
+  }
+}
+
+class _NoPlanBanner extends ConsumerWidget {
+  const _NoPlanBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(PhosphorIconsDuotone.flag, color: cs.primary, size: 36),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'No active plan.',
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Recording still works for ad-hoc runs. Set a new goal whenever you\'re ready.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Consumer(
+            builder: (context, ref, _) {
+              final profileAsync = ref.watch(profileProvider);
+              return profileAsync.when(
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (profile) => profile == null
+                    ? const SizedBox.shrink()
+                    : FilledButton.icon(
+                        onPressed: () async {
+                          await showNewGoalSheet(context, profile);
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Pick a new goal'),
+                      ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChoiceTile extends StatelessWidget {
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ChoiceTile({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: cs.outlineVariant),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: accent, size: 22),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -63,6 +63,7 @@ class Plans extends Table {
   IntColumn get totalWeeks => integer()();
   RealColumn get startVdot => real()();
   RealColumn get targetVdot => real()();
+  TextColumn get planType => text().withDefault(const Constant('race'))();
   DateTimeColumn get createdAt => dateTime()();
 
   @override

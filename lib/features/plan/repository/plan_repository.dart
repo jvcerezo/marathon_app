@@ -28,6 +28,10 @@ class PlanRepository {
       totalWeeks: plan.totalWeeks,
       startVdot: plan.startVdot,
       targetVdot: plan.targetVdot,
+      type: PlanType.values.firstWhere(
+        (t) => t.name == plan.planType,
+        orElse: () => PlanType.race,
+      ),
       sessions: sessions.map(_sessionToDomain).toList(),
     );
   }
@@ -43,6 +47,7 @@ class PlanRepository {
               totalWeeks: plan.totalWeeks,
               startVdot: plan.startVdot,
               targetVdot: plan.targetVdot,
+              planType: Value(plan.type.name),
               createdAt: DateTime.now(),
             ),
           );
@@ -81,6 +86,14 @@ class PlanRepository {
           ..orderBy([(s) => OrderingTerm.asc(s.scheduledDate)]))
         .get();
     return rows.map(_sessionToDomain).toList();
+  }
+
+  /// Wipes the active plan (and its sessions). Used by "Take a break".
+  Future<void> clearActive() async {
+    await _db.transaction(() async {
+      await _db.delete(_db.planSessionsTable).go();
+      await _db.delete(_db.plans).go();
+    });
   }
 
   Future<void> updateSessionStatus(
