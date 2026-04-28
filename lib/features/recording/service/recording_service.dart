@@ -123,7 +123,12 @@ class RecordingService {
     _gpsSub = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        // distanceFilter MUST be 0 here. With a non-zero filter, Android
+        // suppresses position emissions while the user is stationary
+        // (which is the normal pre-run state), and we never get a first
+        // fix. The auto-pause logic in RunRecorder already handles the
+        // stationary case during the actual run.
+        distanceFilter: 0,
         intervalDuration: const Duration(seconds: 2),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Marathon',
@@ -136,30 +141,37 @@ class RecordingService {
   }
 
   void _onPosition(Position p) {
-    // Promote awaitingFix -> ready as soon as we have a usable fix.
-    if (_state == RecordingState.awaitingFix && p.accuracy <= 30) {
-      _setState(RecordingState.ready);
-    }
-
-    final raw = RawSample(
-      lat: p.latitude,
-      lon: p.longitude,
-      elevation: p.altitude,
-      accuracy: p.accuracy,
-      speed: p.speed,
-      timestamp: p.timestamp,
-    );
-
-    if (_runStarted && _recorder != null) {
-      _recorder!.onRawSample(raw);
-    } else if (_state == RecordingState.ready) {
-      // Update preview marker for the live map.
+    // Always update the preview sample so the live map shows the user
+    // immediately, even before the accuracy is good enough to enable
+    // the Start button.
+    if (!_runStarted) {
       _previewSample = RunSample(
         lat: p.latitude,
         lon: p.longitude,
         elevation: p.altitude,
         tOffsetMs: 0,
         instantSpeed: p.speed,
+      );
+    }
+
+    // 50m is lenient: a cold-start GPS often sits at 60-80m for the
+    // first few seconds before the chip settles. We use 50m here to
+    // unlock the Start button. The OutlierFilter still rejects
+    // recording samples >30m, so the run itself stays clean.
+    if (_state == RecordingState.awaitingFix && p.accuracy <= 50) {
+      _setState(RecordingState.ready);
+    }
+
+    if (_runStarted && _recorder != null) {
+      _recorder!.onRawSample(
+        RawSample(
+          lat: p.latitude,
+          lon: p.longitude,
+          elevation: p.altitude,
+          accuracy: p.accuracy,
+          speed: p.speed,
+          timestamp: p.timestamp,
+        ),
       );
     }
   }

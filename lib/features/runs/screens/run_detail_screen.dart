@@ -50,6 +50,10 @@ class RunDetailScreen extends ConsumerWidget {
                       ? FlexibleSpaceBar(
                           background: Stack(
                             children: [
+                              // Dark backdrop so unloaded tiles never flash white.
+                              Positioned.fill(
+                                child: Container(color: AppColors.shade),
+                              ),
                               Positioned.fill(
                                 child: FlutterMap(
                                   options: MapOptions(
@@ -57,6 +61,7 @@ class RunDetailScreen extends ConsumerWidget {
                                       bounds: LatLngBounds.fromPoints(points),
                                       padding: const EdgeInsets.all(40),
                                     ),
+                                    backgroundColor: AppColors.shade,
                                     interactionOptions: const InteractionOptions(
                                       flags: InteractiveFlag.pinchZoom |
                                           InteractiveFlag.drag,
@@ -74,8 +79,26 @@ class RunDetailScreen extends ConsumerWidget {
                                       polylines: [
                                         Polyline(
                                           points: points,
-                                          strokeWidth: 5,
-                                          color: cs.primary,
+                                          strokeWidth: 6,
+                                          color: AppColors.pulse,
+                                          borderColor: AppColors.ink,
+                                          borderStrokeWidth: 2,
+                                        ),
+                                      ],
+                                    ),
+                                    MarkerLayer(
+                                      markers: [
+                                        Marker(
+                                          point: points.first,
+                                          width: 22,
+                                          height: 22,
+                                          child: const _StartMarker(),
+                                        ),
+                                        Marker(
+                                          point: points.last,
+                                          width: 22,
+                                          height: 22,
+                                          child: const _EndMarker(),
                                         ),
                                       ],
                                     ),
@@ -87,15 +110,17 @@ class RunDetailScreen extends ConsumerWidget {
                                 right: 0,
                                 bottom: 0,
                                 height: 56,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        cs.surface.withValues(alpha: 0),
-                                        cs.surface,
-                                      ],
+                                child: IgnorePointer(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          cs.surface.withValues(alpha: 0),
+                                          cs.surface,
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -165,5 +190,33 @@ class RunDetailScreen extends ConsumerWidget {
     final hour = d.hour.toString().padLeft(2, '0');
     final minute = d.minute.toString().padLeft(2, '0');
     return '${shortDayName(d.weekday)} ${monthDay(d)}, $hour:$minute';
+  }
+}
+
+class _StartMarker extends StatelessWidget {
+  const _StartMarker();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.pulse,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.ink, width: 3),
+      ),
+    );
+  }
+}
+
+class _EndMarker extends StatelessWidget {
+  const _EndMarker();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.ember,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.ink, width: 3),
+      ),
+    );
   }
 }
