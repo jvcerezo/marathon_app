@@ -216,6 +216,99 @@ class PlanEngine {
       totalWeeks: totalWeeks,
       startVdot: startVdot,
       targetVdot: targetVdot,
+      type: PlanType.race,
+      sessions: sessions,
+    );
+  }
+
+  /// Open-ended maintenance plan after the user finishes a race or wants
+  /// to coast for a while. No taper, no quality, no peak — just a stable
+  /// weekly template that loops for `weeks` weeks.
+  ///
+  /// Volume is anchored to ~65% of the user's prior peak weekly km, which
+  /// is enough to hold fitness without the fatigue cost of training to
+  /// race again.
+  TrainingPlan generateMaintenance(
+    UserProfile profile, {
+    int weeks = 16,
+  }) {
+    final startVdot = estimateCurrentVdot(profile);
+    final easyPace = easyPaceSecPerKm(startVdot);
+
+    final today = DateTime(_now().year, _now().month, _now().day);
+    final daysSinceMonday = (today.weekday - DateTime.monday) % 7;
+    final startsOn = today.subtract(Duration(days: daysSinceMonday));
+
+    final fitnessFactor = _fitnessFactor(profile.fitnessLevel);
+    final daysPerWeek = profile.daysPerWeek.clamp(3, 6);
+    final layout = _weekLayout(daysPerWeek);
+
+    final maintainKm = _peakWeeklyKm(profile.goalDistance) * 0.65 * fitnessFactor;
+    final maintainLong = _peakLongKm(profile.goalDistance) * 0.55 * fitnessFactor;
+    final easyDayCount = daysPerWeek - 1;
+    final easyKmEach =
+        easyDayCount > 0 ? (maintainKm - maintainLong) / easyDayCount : 0.0;
+
+    final planId = _uuid.v4();
+    final sessions = <PlanSession>[];
+
+    for (int week = 1; week <= weeks; week++) {
+      final weekStart = startsOn.add(Duration(days: (week - 1) * 7));
+      for (int day = 1; day <= 7; day++) {
+        final date = weekStart.add(Duration(days: day - 1));
+        final slot = layout[day]!;
+        late final PlanSession session;
+        switch (slot) {
+          case _Slot.rest:
+            session = PlanSession(
+              id: _uuid.v4(),
+              planId: planId,
+              scheduledDate: date,
+              weekNumber: week,
+              dayOfWeek: day,
+              type: SessionType.rest,
+              prescribedDistanceKm: 0,
+              status: SessionStatus.rest,
+            );
+          case _Slot.long:
+            session = PlanSession(
+              id: _uuid.v4(),
+              planId: planId,
+              scheduledDate: date,
+              weekNumber: week,
+              dayOfWeek: day,
+              type: SessionType.long,
+              prescribedDistanceKm: _round(maintainLong),
+              prescribedPaceSecPerKm: easyPace,
+              status: SessionStatus.scheduled,
+            );
+          case _Slot.quality:
+          case _Slot.easy:
+            session = PlanSession(
+              id: _uuid.v4(),
+              planId: planId,
+              scheduledDate: date,
+              weekNumber: week,
+              dayOfWeek: day,
+              type: SessionType.easy,
+              prescribedDistanceKm: _round(easyKmEach),
+              prescribedPaceSecPerKm: easyPace,
+              status: SessionStatus.scheduled,
+            );
+        }
+        sessions.add(session);
+      }
+    }
+
+    return TrainingPlan(
+      id: planId,
+      userId: profile.id,
+      startsOn: startsOn,
+      targetMarathonDate: sessions.last.scheduledDate,
+      totalWeeks: weeks,
+      startVdot: startVdot,
+      targetVdot: startVdot,
+      type: PlanType.maintenance,
       sessions: sessions,
     );
   }

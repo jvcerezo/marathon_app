@@ -4,6 +4,7 @@ import '../../../core/providers/providers.dart';
 import '../engine/plan_engine.dart';
 import '../models/plan_session.dart';
 import '../models/training_plan.dart';
+import '../plan_state.dart';
 
 final activePlanProvider = FutureProvider<TrainingPlan?>((ref) async {
   return ref.watch(planRepositoryProvider).active();
@@ -34,3 +35,9 @@ final upcomingSessionsProvider =
       );
 });
 
+/// Snapshot of where the user is in their training journey.
+/// Read this on Home/Plan to decide which state to render.
+final planStateProvider = FutureProvider<PlanState>((ref) async {
+  final plan = await ref.watch(activePlanProvider.future);
+  return PlanState.from(plan, DateTime.now());
+});

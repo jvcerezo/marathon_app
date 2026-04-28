@@ -2080,6 +2080,18 @@ class $PlansTable extends Plans with TableInfo<$PlansTable, PlanRow> {
     type: DriftSqlType.double,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _planTypeMeta = const VerificationMeta(
+    'planType',
+  );
+  @override
+  late final GeneratedColumn<String> planType = GeneratedColumn<String>(
+    'plan_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('race'),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -2100,6 +2112,7 @@ class $PlansTable extends Plans with TableInfo<$PlansTable, PlanRow> {
     totalWeeks,
     startVdot,
     targetVdot,
+    planType,
     createdAt,
   ];
   @override
@@ -2170,6 +2183,12 @@ class $PlansTable extends Plans with TableInfo<$PlansTable, PlanRow> {
     } else if (isInserting) {
       context.missing(_targetVdotMeta);
     }
+    if (data.containsKey('plan_type')) {
+      context.handle(
+        _planTypeMeta,
+        planType.isAcceptableOrUnknown(data['plan_type']!, _planTypeMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -2215,6 +2234,10 @@ class $PlansTable extends Plans with TableInfo<$PlansTable, PlanRow> {
         DriftSqlType.double,
         data['${effectivePrefix}target_vdot'],
       )!,
+      planType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plan_type'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -2236,6 +2259,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
   final int totalWeeks;
   final double startVdot;
   final double targetVdot;
+  final String planType;
   final DateTime createdAt;
   const PlanRow({
     required this.id,
@@ -2245,6 +2269,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
     required this.totalWeeks,
     required this.startVdot,
     required this.targetVdot,
+    required this.planType,
     required this.createdAt,
   });
   @override
@@ -2257,6 +2282,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
     map['total_weeks'] = Variable<int>(totalWeeks);
     map['start_vdot'] = Variable<double>(startVdot);
     map['target_vdot'] = Variable<double>(targetVdot);
+    map['plan_type'] = Variable<String>(planType);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -2270,6 +2296,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
       totalWeeks: Value(totalWeeks),
       startVdot: Value(startVdot),
       targetVdot: Value(targetVdot),
+      planType: Value(planType),
       createdAt: Value(createdAt),
     );
   }
@@ -2289,6 +2316,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
       totalWeeks: serializer.fromJson<int>(json['totalWeeks']),
       startVdot: serializer.fromJson<double>(json['startVdot']),
       targetVdot: serializer.fromJson<double>(json['targetVdot']),
+      planType: serializer.fromJson<String>(json['planType']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -2303,6 +2331,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
       'totalWeeks': serializer.toJson<int>(totalWeeks),
       'startVdot': serializer.toJson<double>(startVdot),
       'targetVdot': serializer.toJson<double>(targetVdot),
+      'planType': serializer.toJson<String>(planType),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -2315,6 +2344,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
     int? totalWeeks,
     double? startVdot,
     double? targetVdot,
+    String? planType,
     DateTime? createdAt,
   }) => PlanRow(
     id: id ?? this.id,
@@ -2324,6 +2354,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
     totalWeeks: totalWeeks ?? this.totalWeeks,
     startVdot: startVdot ?? this.startVdot,
     targetVdot: targetVdot ?? this.targetVdot,
+    planType: planType ?? this.planType,
     createdAt: createdAt ?? this.createdAt,
   );
   PlanRow copyWithCompanion(PlansCompanion data) {
@@ -2341,6 +2372,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
       targetVdot: data.targetVdot.present
           ? data.targetVdot.value
           : this.targetVdot,
+      planType: data.planType.present ? data.planType.value : this.planType,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -2355,6 +2387,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
           ..write('totalWeeks: $totalWeeks, ')
           ..write('startVdot: $startVdot, ')
           ..write('targetVdot: $targetVdot, ')
+          ..write('planType: $planType, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -2369,6 +2402,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
     totalWeeks,
     startVdot,
     targetVdot,
+    planType,
     createdAt,
   );
   @override
@@ -2382,6 +2416,7 @@ class PlanRow extends DataClass implements Insertable<PlanRow> {
           other.totalWeeks == this.totalWeeks &&
           other.startVdot == this.startVdot &&
           other.targetVdot == this.targetVdot &&
+          other.planType == this.planType &&
           other.createdAt == this.createdAt);
 }
 
@@ -2393,6 +2428,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
   final Value<int> totalWeeks;
   final Value<double> startVdot;
   final Value<double> targetVdot;
+  final Value<String> planType;
   final Value<DateTime> createdAt;
   final Value<int> rowid;
   const PlansCompanion({
@@ -2403,6 +2439,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
     this.totalWeeks = const Value.absent(),
     this.startVdot = const Value.absent(),
     this.targetVdot = const Value.absent(),
+    this.planType = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -2414,6 +2451,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
     required int totalWeeks,
     required double startVdot,
     required double targetVdot,
+    this.planType = const Value.absent(),
     required DateTime createdAt,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -2432,6 +2470,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
     Expression<int>? totalWeeks,
     Expression<double>? startVdot,
     Expression<double>? targetVdot,
+    Expression<String>? planType,
     Expression<DateTime>? createdAt,
     Expression<int>? rowid,
   }) {
@@ -2444,6 +2483,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
       if (totalWeeks != null) 'total_weeks': totalWeeks,
       if (startVdot != null) 'start_vdot': startVdot,
       if (targetVdot != null) 'target_vdot': targetVdot,
+      if (planType != null) 'plan_type': planType,
       if (createdAt != null) 'created_at': createdAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -2457,6 +2497,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
     Value<int>? totalWeeks,
     Value<double>? startVdot,
     Value<double>? targetVdot,
+    Value<String>? planType,
     Value<DateTime>? createdAt,
     Value<int>? rowid,
   }) {
@@ -2468,6 +2509,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
       totalWeeks: totalWeeks ?? this.totalWeeks,
       startVdot: startVdot ?? this.startVdot,
       targetVdot: targetVdot ?? this.targetVdot,
+      planType: planType ?? this.planType,
       createdAt: createdAt ?? this.createdAt,
       rowid: rowid ?? this.rowid,
     );
@@ -2499,6 +2541,9 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
     if (targetVdot.present) {
       map['target_vdot'] = Variable<double>(targetVdot.value);
     }
+    if (planType.present) {
+      map['plan_type'] = Variable<String>(planType.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -2518,6 +2563,7 @@ class PlansCompanion extends UpdateCompanion<PlanRow> {
           ..write('totalWeeks: $totalWeeks, ')
           ..write('startVdot: $startVdot, ')
           ..write('targetVdot: $targetVdot, ')
+          ..write('planType: $planType, ')
           ..write('createdAt: $createdAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -4192,6 +4238,7 @@ typedef $$PlansTableCreateCompanionBuilder =
       required int totalWeeks,
       required double startVdot,
       required double targetVdot,
+      Value<String> planType,
       required DateTime createdAt,
       Value<int> rowid,
     });
@@ -4204,6 +4251,7 @@ typedef $$PlansTableUpdateCompanionBuilder =
       Value<int> totalWeeks,
       Value<double> startVdot,
       Value<double> targetVdot,
+      Value<String> planType,
       Value<DateTime> createdAt,
       Value<int> rowid,
     });
@@ -4248,6 +4296,11 @@ class $$PlansTableFilterComposer extends Composer<_$AppDatabase, $PlansTable> {
 
   ColumnFilters<double> get targetVdot => $composableBuilder(
     column: $table.targetVdot,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get planType => $composableBuilder(
+    column: $table.planType,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4301,6 +4354,11 @@ class $$PlansTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get planType => $composableBuilder(
+    column: $table.planType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -4343,6 +4401,9 @@ class $$PlansTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get planType =>
+      $composableBuilder(column: $table.planType, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 }
@@ -4382,6 +4443,7 @@ class $$PlansTableTableManager
                 Value<int> totalWeeks = const Value.absent(),
                 Value<double> startVdot = const Value.absent(),
                 Value<double> targetVdot = const Value.absent(),
+                Value<String> planType = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PlansCompanion(
@@ -4392,6 +4454,7 @@ class $$PlansTableTableManager
                 totalWeeks: totalWeeks,
                 startVdot: startVdot,
                 targetVdot: targetVdot,
+                planType: planType,
                 createdAt: createdAt,
                 rowid: rowid,
               ),
@@ -4404,6 +4467,7 @@ class $$PlansTableTableManager
                 required int totalWeeks,
                 required double startVdot,
                 required double targetVdot,
+                Value<String> planType = const Value.absent(),
                 required DateTime createdAt,
                 Value<int> rowid = const Value.absent(),
               }) => PlansCompanion.insert(
@@ -4414,6 +4478,7 @@ class $$PlansTableTableManager
                 totalWeeks: totalWeeks,
                 startVdot: startVdot,
                 targetVdot: targetVdot,
+                planType: planType,
                 createdAt: createdAt,
                 rowid: rowid,
               ),
