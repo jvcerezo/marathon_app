@@ -16,9 +16,9 @@ class MarathonApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'Marathon',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
+      theme: AppTheme.dark(),
       darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.system,
+      themeMode: ThemeMode.dark,
       routerConfig: appRouter,
     );
   }

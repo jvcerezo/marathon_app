@@ -16,6 +16,7 @@ enum FitnessLevel {
 
 class UserProfile {
   final String id;
+  final String name;
   final int ageYears;
   final Gender gender;
   final double heightCm;
@@ -41,6 +42,7 @@ class UserProfile {
 
   const UserProfile({
     required this.id,
+    required this.name,
     required this.ageYears,
     required this.gender,
     required this.heightCm,
@@ -55,9 +57,18 @@ class UserProfile {
     this.goalMarathonTime,
   });
 
+  /// First name only, useful for compact greetings.
+  String get firstName {
+    final t = name.trim();
+    if (t.isEmpty) return '';
+    final parts = t.split(RegExp(r'\s+'));
+    return parts.first;
+  }
+
   double get bmi => weightKg / ((heightCm / 100) * (heightCm / 100));
 
   UserProfile copyWith({
+    String? name,
     int? ageYears,
     Gender? gender,
     double? heightCm,
@@ -72,6 +83,7 @@ class UserProfile {
   }) {
     return UserProfile(
       id: id,
+      name: name ?? this.name,
       ageYears: ageYears ?? this.ageYears,
       gender: gender ?? this.gender,
       heightCm: heightCm ?? this.heightCm,

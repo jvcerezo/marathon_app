@@ -1,7 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/design/tokens.dart';
+import '../../../core/design/widgets/hero_number.dart';
+import '../../../core/design/widgets/section_label.dart';
 import '../../../core/format/format.dart';
 import '../../fitness/predictor.dart';
 import '../../plan/models/plan_session.dart';
@@ -22,7 +25,9 @@ class ProgressScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Progress')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.huge,
+        ),
         children: [
           profileAsync.when(
             loading: () => const SizedBox.shrink(),
@@ -34,19 +39,19 @@ class ProgressScreen extends ConsumerWidget {
                     currentVdot: estimateCurrentVdot(p),
                   ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           runsAsync.when(
             loading: () => const SizedBox.shrink(),
-            error: (e, _) => Text('Error: $e'),
+            error: (e, _) => Text('$e'),
             data: (runs) => Column(
               children: [
                 _StreakCard(runs: runs),
-                const SizedBox(height: 16),
-                _WeeklyMileageChart(runs: runs),
+                const SizedBox(height: AppSpacing.lg),
+                _WeeklyMileageCard(runs: runs),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           planAsync.when(
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
@@ -80,6 +85,7 @@ class ProgressScreen extends ConsumerWidget {
 class _PredictionCard extends StatelessWidget {
   final double targetVdot;
   final double currentVdot;
+
   const _PredictionCard({
     required this.targetVdot,
     required this.currentVdot,
@@ -87,68 +93,69 @@ class _PredictionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final currentMarathon = predictRaceTime(currentVdot, kMarathon);
     final targetMarathon = predictRaceTime(targetVdot, kMarathon);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Marathon prediction',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Row(
+    final delta = currentMarathon - targetMarathon;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionLabel('Marathon prediction'),
+          const SizedBox(height: AppSpacing.lg),
+          HeroNumber(
+            formatDuration(targetMarathon),
+            size: 64,
+            color: cs.primary,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'After 12 months of consistency.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.md,
+            ),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: Row(
               children: [
-                Expanded(
-                  child: _PredictionStat(
-                    label: 'Right now',
-                    value: formatDuration(currentMarathon),
-                  ),
+                Icon(Icons.timer_outlined,
+                    size: 18, color: cs.onSurfaceVariant),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  'Today: ${formatDuration(currentMarathon)}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
-                Expanded(
-                  child: _PredictionStat(
-                    label: 'After 12 months',
-                    value: formatDuration(targetMarathon),
-                    emphasized: true,
+                const Spacer(),
+                Text(
+                  '−${formatDuration(delta)}',
+                  style: TextStyle(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
-}
-
-class _PredictionStat extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool emphasized;
-  const _PredictionStat({
-    required this.label,
-    required this.value,
-    this.emphasized = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: emphasized
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
-              ),
-        ),
-      ],
     );
   }
 }
@@ -157,10 +164,14 @@ class _StreakCard extends StatelessWidget {
   final List<CompletedRun> runs;
   const _StreakCard({required this.runs});
 
-  int _streak(List<CompletedRun> runs) {
+  int _streak() {
     if (runs.isEmpty) return 0;
     final dayKeys = runs
-        .map((r) => DateTime(r.startedAt.year, r.startedAt.month, r.startedAt.day))
+        .map((r) => DateTime(
+              r.startedAt.year,
+              r.startedAt.month,
+              r.startedAt.day,
+            ))
         .toSet();
     int streak = 0;
     var day = DateTime.now();
@@ -170,7 +181,6 @@ class _StreakCard extends StatelessWidget {
         streak++;
         day = day.subtract(const Duration(days: 1));
       } else {
-        // Allow rest days: only break if we've gone 2 days without a run.
         final yesterday = day.subtract(const Duration(days: 1));
         if (dayKeys.contains(yesterday)) {
           day = yesterday;
@@ -185,40 +195,51 @@ class _StreakCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(
-              Icons.local_fire_department_outlined,
-              color: Theme.of(context).colorScheme.primary,
-              size: 36,
-            ),
-            const SizedBox(width: 12),
-            Column(
+    final cs = Theme.of(context).colorScheme;
+    final streak = _streak();
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${_streak(runs)} day streak',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        )),
+                SectionLabel('Streak', color: AppColors.ember),
+                const SizedBox(height: AppSpacing.md),
+                HeroNumber(
+                  '$streak',
+                  unit: streak == 1 ? 'day' : 'days',
+                  size: 56,
+                ),
+                const SizedBox(height: AppSpacing.sm),
                 Text(
-                  'Rest days don\'t break it.',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  "Rest days don't break it.",
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          Icon(
+            Icons.local_fire_department_rounded,
+            color: AppColors.ember,
+            size: 56,
+          ),
+        ],
       ),
     );
   }
 }
 
-class _WeeklyMileageChart extends StatelessWidget {
+class _WeeklyMileageCard extends StatelessWidget {
   final List<CompletedRun> runs;
-  const _WeeklyMileageChart({required this.runs});
+  const _WeeklyMileageCard({required this.runs});
 
   Map<int, double> _byWeek() {
     final now = DateTime.now();
@@ -226,7 +247,7 @@ class _WeeklyMileageChart extends StatelessWidget {
     for (final r in runs) {
       final daysAgo = now.difference(r.startedAt).inDays;
       final weeksAgo = daysAgo ~/ 7;
-      if (weeksAgo > 12) continue;
+      if (weeksAgo > 11) continue;
       result[weeksAgo] = (result[weeksAgo] ?? 0) + r.distanceKm;
     }
     return result;
@@ -234,66 +255,82 @@ class _WeeklyMileageChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final data = _byWeek();
-    final spots = <FlSpot>[];
-    for (int week = 12; week >= 0; week--) {
-      spots.add(FlSpot((12 - week).toDouble(), data[week] ?? 0));
-    }
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Weekly mileage',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text('Last 12 weeks',
-                style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 180,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  gridData: const FlGridData(show: false),
-                  borderData: FlBorderData(show: false),
-                  titlesData: const FlTitlesData(
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: true, reservedSize: 28),
-                    ),
-                    rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
+    final total = data.values.fold<double>(0, (a, b) => a + b);
+    final maxV = data.values.fold<double>(0, (a, b) => b > a ? b : a);
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionLabel('Last 12 weeks'),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              HeroNumber(
+                total.toStringAsFixed(0),
+                unit: 'km logged',
+                size: 44,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          SizedBox(
+            height: 140,
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                gridData: const FlGridData(show: false),
+                borderData: FlBorderData(show: false),
+                maxY: maxV == 0 ? 10 : maxV * 1.2,
+                titlesData: const FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
                   ),
-                  barGroups: spots
-                      .map(
-                        (s) => BarChartGroupData(
-                          x: s.x.toInt(),
-                          barRods: [
-                            BarChartRodData(
-                              toY: s.y,
-                              width: 12,
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(4),
-                              ),
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ],
-                        ),
-                      )
-                      .toList(),
+                  rightTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
                 ),
+                barGroups: List.generate(12, (i) {
+                  final week = 11 - i;
+                  return BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: data[week] ?? 0,
+                        width: 14,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(4),
+                        ),
+                        color: cs.primary,
+                        backDrawRodData: BackgroundBarChartRodData(
+                          show: true,
+                          toY: maxV == 0 ? 10 : maxV * 1.2,
+                          color: cs.surfaceContainerHigh,
+                        ),
+                      ),
+                    ],
+                  );
+                }),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -304,6 +341,7 @@ class _AdherenceCard extends StatelessWidget {
   final int hits;
   final int partial;
   final int missed;
+
   const _AdherenceCard({
     required this.adherence,
     required this.hits,
@@ -313,31 +351,94 @@ class _AdherenceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final pct = (adherence * 100).round();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Plan adherence',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            LinearProgressIndicator(
-              value: adherence,
-              minHeight: 8,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            const SizedBox(height: 12),
-            Text('$pct% of completed sessions hit'),
-            const SizedBox(height: 4),
-            Text(
-              '$hits hit · $partial partial · $missed missed',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: cs.outlineVariant),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionLabel('Adherence'),
+          const SizedBox(height: AppSpacing.md),
+          HeroNumber(
+            '$pct',
+            unit: '%',
+            size: 56,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              height: 8,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: hits == 0 ? 0 : hits,
+                    child: Container(color: AppColors.pulse),
+                  ),
+                  Expanded(
+                    flex: partial == 0 ? 0 : partial,
+                    child: Container(color: AppColors.warn),
+                  ),
+                  Expanded(
+                    flex: missed == 0 ? 0 : missed,
+                    child: Container(color: AppColors.miss),
+                  ),
+                  if (hits + partial + missed == 0)
+                    Expanded(
+                      flex: 1,
+                      child: Container(color: cs.surfaceContainerHigh),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.lg,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _LegendDot(color: AppColors.pulse, label: '$hits hit'),
+              _LegendDot(color: AppColors.warn, label: '$partial partial'),
+              _LegendDot(color: AppColors.miss, label: '$missed missed'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _LegendDot({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 @DataClassName('UserProfileRow')
 class UserProfiles extends Table {
   TextColumn get id => text()();
+  TextColumn get name => text().withDefault(const Constant(''))();
   IntColumn get ageYears => integer()();
   TextColumn get gender => text()(); // enum string
   RealColumn get heightCm => real()();
