@@ -12,7 +12,26 @@ import '../models/run_sample.dart';
 import '../pipeline/run_recorder.dart';
 import 'audio_cue_service.dart';
 
-enum RecordingState { idle, awaitingFix, recording, paused, stopped }
+enum RecordingState {
+  /// Nothing happening.
+  idle,
+
+  /// GPS stream open, waiting for the first usable fix.
+  awaitingFix,
+
+  /// First fix arrived. The map can show the user's location, but the
+  /// recorder hasn't started yet — waiting for the user to tap Start.
+  ready,
+
+  /// Recorder is actively accumulating distance and time.
+  recording,
+
+  /// Recording was started and the user has paused it.
+  paused,
+
+  /// Run was finalized.
+  stopped,
+}
 
 class RecordingService {
   final RunsRepository _runs;
@@ -27,6 +46,15 @@ class RecordingService {
   Timer? _flushTimer;
   String? _runId;
   bool _wakelockEnabled = false;
+  bool _audioEnabled = false;
+
+  /// True after the user has pressed Start Run. Until then we're holding
+  /// in the ready state, displaying the location dot but not recording.
+  bool _runStarted = false;
+
+  /// Latest GPS fix observed during the awaitingFix/ready window. Used so
+  /// the map can show a marker at the user's location before recording.
+  RunSample? _previewSample;
 
   final List<RunSample> _buffer = [];
   final List<RunSample> _allSamples = [];
@@ -39,7 +67,16 @@ class RecordingService {
 
   RunRecorder? get recorder => _recorder;
   String? get currentRunId => _runId;
-  List<RunSample> get currentSamples => List.unmodifiable(_allSamples);
+
+  /// Samples used by the map. While recording: the full route. While
+  /// preparing: a single point at the current location so the marker
+  /// can render.
+  List<RunSample> get currentSamples {
+    if (_runStarted) return List.unmodifiable(_allSamples);
+    final p = _previewSample;
+    if (p != null) return [p];
+    return const [];
+  }
 
   Future<bool> ensurePermissions() async {
     var permission = await Geolocator.checkPermission();
@@ -53,6 +90,10 @@ class RecordingService {
             permission == LocationPermission.whileInUse);
   }
 
+  /// Opens the GPS stream and prepares the recorder, but does NOT start
+  /// it. Once a usable fix arrives the state moves to `ready` and the UI
+  /// can render a Start Run button. Recording only begins when the user
+  /// taps it (see [begin]).
   Future<void> start({
     bool keepScreenAwake = false,
     bool audioCues = true,
@@ -64,67 +105,92 @@ class RecordingService {
     }
 
     _runId = _uuid.v4();
-    final startedAt = DateTime.now();
-    await _runs.createRun(id: _runId!, startedAt: startedAt);
+    _audioEnabled = audioCues;
+    _runStarted = false;
+    _previewSample = null;
+    _allSamples.clear();
+    _buffer.clear();
 
-    _recorder = RunRecorder()..start();
+    _recorder = RunRecorder(); // not started
+
     if (keepScreenAwake) {
       await WakelockPlus.enable();
       _wakelockEnabled = true;
-    }
-    if (audioCues) {
-      await _audio.start(_recorder!);
     }
 
     _setState(RecordingState.awaitingFix);
 
     _gpsSub = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
-        // `high` is plenty for runners; `bestForNavigation` is tuned for
-        // cars at 100 km/h and draws noticeably more on some chipsets.
         accuracy: LocationAccuracy.high,
-        // Don't emit samples while the user is standing still (red lights,
-        // water breaks). Auto-pause already kicks in via RunRecorder.
         distanceFilter: 3,
-        // Every 2 seconds is the standard "battery saver" cadence used by
-        // Strava et al. At 8 m/s we still get a sample every ~16 m, which
-        // simplifies down to the same polyline after Douglas-Peucker.
         intervalDuration: const Duration(seconds: 2),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'Recording run',
-          notificationText: 'Tap to return',
-          // The geolocator wake lock keeps the GPS chip awake. The screen
-          // can still sleep. WiFi lock helps with assisted positioning.
+          notificationTitle: 'Marathon',
+          notificationText: 'GPS active',
           enableWakeLock: true,
           enableWifiLock: true,
         ),
       ),
-    ).listen((p) {
-      if (_state == RecordingState.awaitingFix && p.accuracy <= 30) {
-        _setState(RecordingState.recording);
-      }
-      _recorder!.onRawSample(
-        RawSample(
-          lat: p.latitude,
-          lon: p.longitude,
-          elevation: p.altitude,
-          accuracy: p.accuracy,
-          speed: p.speed,
-          timestamp: p.timestamp,
-        ),
-      );
-    });
+    ).listen(_onPosition);
+  }
 
-    _sampleSub = _recorder!.samples.listen((s) {
+  void _onPosition(Position p) {
+    // Promote awaitingFix -> ready as soon as we have a usable fix.
+    if (_state == RecordingState.awaitingFix && p.accuracy <= 30) {
+      _setState(RecordingState.ready);
+    }
+
+    final raw = RawSample(
+      lat: p.latitude,
+      lon: p.longitude,
+      elevation: p.altitude,
+      accuracy: p.accuracy,
+      speed: p.speed,
+      timestamp: p.timestamp,
+    );
+
+    if (_runStarted && _recorder != null) {
+      _recorder!.onRawSample(raw);
+    } else if (_state == RecordingState.ready) {
+      // Update preview marker for the live map.
+      _previewSample = RunSample(
+        lat: p.latitude,
+        lon: p.longitude,
+        elevation: p.altitude,
+        tOffsetMs: 0,
+        instantSpeed: p.speed,
+      );
+    }
+  }
+
+  /// User has tapped Start Run. Now actually start the recorder and the
+  /// flush/audio plumbing. Idempotent if already recording.
+  Future<void> begin() async {
+    if (_state == RecordingState.recording) return;
+    if (_state != RecordingState.ready) {
+      throw StateError('Cannot begin: still acquiring GPS.');
+    }
+    final recorder = _recorder!;
+    final runId = _runId!;
+
+    _runStarted = true;
+    recorder.start();
+
+    await _runs.createRun(id: runId, startedAt: DateTime.now());
+
+    if (_audioEnabled) {
+      await _audio.start(recorder);
+    }
+
+    _sampleSub = recorder.samples.listen((s) {
       _buffer.add(s);
       _allSamples.add(s);
     });
 
-    // 30s flush cadence trades a bit of crash-recovery granularity (we
-    // could lose up to 30s of samples instead of 10s) for noticeably
-    // fewer SQLite wakes on a long run.
-    _flushTimer =
-        Timer.periodic(const Duration(seconds: 30), (_) => _flush());
+    _flushTimer = Timer.periodic(const Duration(seconds: 30), (_) => _flush());
+
+    _setState(RecordingState.recording);
   }
 
   void pause() {
@@ -137,12 +203,28 @@ class RecordingService {
     _setState(RecordingState.recording);
   }
 
-  Future<CompletedRun> stop() async {
+  /// Tear down a prepared-but-not-yet-started recording (user backed out
+  /// before pressing Start).
+  Future<void> cancelPrep() async {
+    await _gpsSub?.cancel();
+    if (_wakelockEnabled) {
+      await WakelockPlus.disable();
+      _wakelockEnabled = false;
+    }
+    _reset();
+  }
+
+  Future<CompletedRun?> stop() async {
     final runId = _runId;
     final recorder = _recorder;
-    if (runId == null || recorder == null) {
-      throw StateError('No active recording.');
+    if (runId == null || recorder == null) return null;
+
+    if (!_runStarted) {
+      // Never actually started. Treat as cancel.
+      await cancelPrep();
+      return null;
     }
+
     await _flush();
     await _gpsSub?.cancel();
     await _sampleSub?.cancel();
@@ -150,12 +232,12 @@ class RecordingService {
 
     final endedAt = DateTime.now();
     final elapsedSec = recorder.elapsed.inSeconds;
-    final movingSec = elapsedSec; // TODO: track paused time precisely
+    final movingSec = elapsedSec; // already excludes paused intervals
 
     final encoded = encodePolyline(
       simplify(
         _allSamples.map((s) => (lat: s.lat, lon: s.lon)).toList(),
-        4.0, // 4-meter tolerance
+        4.0,
       ),
     );
 
@@ -173,14 +255,13 @@ class RecordingService {
       await WakelockPlus.disable();
       _wakelockEnabled = false;
     }
-    // Speak the summary before tearing the TTS engine down.
     await _audio.announceFinish(recorder.distanceM, recorder.elapsed);
     await _audio.stop();
     await recorder.dispose();
 
     final run = await _runs.get(runId);
     _reset();
-    return run!;
+    return run;
   }
 
   Future<void> _flush() async {
@@ -210,6 +291,8 @@ class RecordingService {
     _gpsSub = null;
     _sampleSub = null;
     _flushTimer = null;
+    _runStarted = false;
+    _previewSample = null;
     _buffer.clear();
     _allSamples.clear();
     _setState(RecordingState.idle);

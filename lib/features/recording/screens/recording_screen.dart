@@ -56,10 +56,25 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     }
   }
 
+  Future<void> _begin() async {
+    final svc = ref.read(recordingServiceProvider);
+    if (svc.state != RecordingState.ready) return;
+    try {
+      await svc.begin();
+    } on StateError catch (e) {
+      setState(() => _error = e.message);
+    }
+  }
+
   Future<void> _stop() async {
     final svc = ref.read(recordingServiceProvider);
     final adherence = ref.read(adherenceServiceProvider);
     final run = await svc.stop();
+    if (run == null) {
+      // Was never started; nothing to save.
+      if (mounted) context.pop();
+      return;
+    }
     final match = await adherence.matchRun(run);
     if (!mounted) return;
     final summary = match == null
@@ -122,6 +137,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                       }
                     },
                     onFinish: _stop,
+                    onBegin: _begin,
                   )
                 : _NoMapLayout(
                     state: stateAsync.value,
@@ -136,6 +152,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                       }
                     },
                     onFinish: _stop,
+                    onBegin: _begin,
                   ),
       ),
     );
@@ -462,16 +479,47 @@ class _Controls extends StatelessWidget {
   final bool starting;
   final VoidCallback onPauseToggle;
   final VoidCallback onFinish;
+  final VoidCallback onBegin;
 
   const _Controls({
     required this.state,
     required this.starting,
     required this.onPauseToggle,
     required this.onFinish,
+    required this.onBegin,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Pre-recording controls
+    if (state == RecordingState.awaitingFix ||
+        state == RecordingState.ready) {
+      final ready = state == RecordingState.ready;
+      return SizedBox(
+        height: 64,
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: ready ? AppColors.pulse : AppColors.iron,
+            foregroundColor: ready ? AppColors.ink : AppColors.fog,
+            disabledBackgroundColor: AppColors.iron,
+            disabledForegroundColor: AppColors.fog,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+            ),
+          ),
+          onPressed: ready ? onBegin : null,
+          icon: const Icon(Icons.play_arrow_rounded, size: 28),
+          label: Text(ready ? 'Start run' : 'Acquiring GPS...'),
+        ),
+      );
+    }
+
+    // Recording / paused controls
     final isPaused = state == RecordingState.paused;
     return Row(
       children: [
@@ -655,6 +703,7 @@ class _MapLayout extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onPauseToggle;
   final VoidCallback onFinish;
+  final VoidCallback onBegin;
 
   const _MapLayout({
     required this.samples,
@@ -665,6 +714,7 @@ class _MapLayout extends StatelessWidget {
     required this.onClose,
     required this.onPauseToggle,
     required this.onFinish,
+    required this.onBegin,
   });
 
   @override
@@ -718,6 +768,7 @@ class _MapLayout extends StatelessWidget {
               starting: starting,
               onPauseToggle: onPauseToggle,
               onFinish: onFinish,
+              onBegin: onBegin,
             ),
           ),
         ),
@@ -733,6 +784,7 @@ class _NoMapLayout extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onPauseToggle;
   final VoidCallback onFinish;
+  final VoidCallback onBegin;
 
   const _NoMapLayout({
     required this.state,
@@ -741,6 +793,7 @@ class _NoMapLayout extends StatelessWidget {
     required this.onClose,
     required this.onPauseToggle,
     required this.onFinish,
+    required this.onBegin,
   });
 
   @override
@@ -756,6 +809,7 @@ class _NoMapLayout extends StatelessWidget {
               starting: starting,
               onPauseToggle: onPauseToggle,
               onFinish: onFinish,
+              onBegin: onBegin,
               extraDistanceSize: true,
             ),
           ),
@@ -837,6 +891,8 @@ class _LiveMapState extends State<_LiveMap> {
 
     return Stack(
       children: [
+        // Dark backdrop so the unloaded-tile area never flashes white.
+        Positioned.fill(child: Container(color: AppColors.shade)),
         Positioned.fill(
           child: FlutterMap(
             mapController: _controller,
@@ -845,6 +901,7 @@ class _LiveMapState extends State<_LiveMap> {
               initialZoom: _zoom,
               minZoom: 12,
               maxZoom: 19,
+              backgroundColor: AppColors.shade,
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.none,
               ),
@@ -971,6 +1028,7 @@ class _BottomPanel extends ConsumerWidget {
   final bool starting;
   final VoidCallback onPauseToggle;
   final VoidCallback onFinish;
+  final VoidCallback onBegin;
   final bool extraDistanceSize;
 
   const _BottomPanel({
@@ -979,6 +1037,7 @@ class _BottomPanel extends ConsumerWidget {
     required this.starting,
     required this.onPauseToggle,
     required this.onFinish,
+    required this.onBegin,
     this.extraDistanceSize = false,
   });
 
@@ -1044,6 +1103,7 @@ class _BottomPanel extends ConsumerWidget {
             starting: starting,
             onPauseToggle: onPauseToggle,
             onFinish: onFinish,
+            onBegin: onBegin,
           ),
         ],
       ),

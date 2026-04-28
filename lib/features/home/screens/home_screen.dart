@@ -90,31 +90,34 @@ class HomeScreen extends ConsumerWidget {
             });
             return const SizedBox.shrink();
           }
-          return RefreshIndicator(
-            color: cs.primary,
-            onRefresh: () async {
-              ref.invalidate(todaySessionProvider);
-              ref.invalidate(activePlanProvider);
-              ref.invalidate(homeStatsProvider);
-              ref.invalidate(planStateProvider);
-            },
-            child: Consumer(
-              builder: (context, ref, _) {
-                final stateAsync = ref.watch(planStateProvider);
-                return stateAsync.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: Text('$e')),
-                  data: (state) => ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg, AppSpacing.lg, AppSpacing.lg,
-                      AppSpacing.fabSafe,
-                    ),
-                    children: _bodyForState(context, ref, profile, state),
-                  ),
-                );
+          return SafeArea(
+            bottom: false,
+            child: RefreshIndicator(
+              color: cs.primary,
+              onRefresh: () async {
+                ref.invalidate(todaySessionProvider);
+                ref.invalidate(activePlanProvider);
+                ref.invalidate(homeStatsProvider);
+                ref.invalidate(planStateProvider);
               },
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final stateAsync = ref.watch(planStateProvider);
+                  return stateAsync.when(
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => Center(child: Text('$e')),
+                    data: (state) => ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg, AppSpacing.md, AppSpacing.lg,
+                        AppSpacing.fabSafe,
+                      ),
+                      children: _bodyForState(context, ref, profile, state),
+                    ),
+                  );
+                },
+              ),
             ),
           );
         },
