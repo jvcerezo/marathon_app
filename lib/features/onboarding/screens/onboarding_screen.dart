@@ -35,7 +35,31 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   double? _recentDistanceKm;
   Duration? _recentDuration;
   int _daysPerWeek = 4;
+  GoalDistance _goalDistance = GoalDistance.marathon;
   DateTime _raceDate = DateTime.now().add(const Duration(days: 365));
+  bool _userPickedRaceDate = false;
+
+  void _onGoalDistanceChange(GoalDistance g) {
+    setState(() {
+      _goalDistance = g;
+      if (!_userPickedRaceDate) {
+        final defaultWeeks = switch (g) {
+          GoalDistance.fiveK => 12,
+          GoalDistance.tenK => 16,
+          GoalDistance.halfMarathon => 20,
+          GoalDistance.marathon => 52,
+        };
+        _raceDate = DateTime.now().add(Duration(days: defaultWeeks * 7));
+      }
+    });
+  }
+
+  void _onRaceDatePicked(DateTime d) {
+    setState(() {
+      _raceDate = d;
+      _userPickedRaceDate = true;
+    });
+  }
 
   bool _saving = false;
 
@@ -84,6 +108,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           : _recentDistanceKm! * 1000,
       recentRunDuration: _recentDuration,
       daysPerWeek: _daysPerWeek,
+      goalDistance: _goalDistance,
       targetMarathonDate: _raceDate,
       createdAt: now,
       updatedAt: now,
@@ -167,6 +192,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       name: _name,
                       daysPerWeek: _daysPerWeek,
                       raceDate: _raceDate,
+                      goalDistance: _goalDistance,
                       age: _age,
                       gender: _gender,
                       heightCm: _heightCm,
@@ -177,7 +203,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           : _recentDistanceKm! * 1000,
                       recentRunDuration: _recentDuration,
                       onDays: (v) => setState(() => _daysPerWeek = v),
-                      onRaceDate: (v) => setState(() => _raceDate = v),
+                      onRaceDate: _onRaceDatePicked,
+                      onGoalDistance: _onGoalDistanceChange,
                     ),
                   ],
                 ),
@@ -701,6 +728,7 @@ class _PlanPage extends StatelessWidget {
   final String name;
   final int daysPerWeek;
   final DateTime raceDate;
+  final GoalDistance goalDistance;
   final int? age;
   final Gender? gender;
   final double? heightCm;
@@ -710,11 +738,13 @@ class _PlanPage extends StatelessWidget {
   final Duration? recentRunDuration;
   final ValueChanged<int> onDays;
   final ValueChanged<DateTime> onRaceDate;
+  final ValueChanged<GoalDistance> onGoalDistance;
 
   const _PlanPage({
     required this.name,
     required this.daysPerWeek,
     required this.raceDate,
+    required this.goalDistance,
     required this.age,
     required this.gender,
     required this.heightCm,
@@ -724,6 +754,7 @@ class _PlanPage extends StatelessWidget {
     required this.recentRunDuration,
     required this.onDays,
     required this.onRaceDate,
+    required this.onGoalDistance,
   });
 
   @override
@@ -746,18 +777,39 @@ class _PlanPage extends StatelessWidget {
         recentRunDistanceM: recentRunDistanceM,
         recentRunDuration: recentRunDuration,
         daysPerWeek: daysPerWeek,
+        goalDistance: goalDistance,
         targetMarathonDate: raceDate,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
-      predicted = predictRaceTime(estimateTargetVdot(tempProfile), kMarathon);
+      predicted = predictRaceTime(
+          estimateTargetVdot(tempProfile), goalDistance.meters);
     }
     final daysToRace = raceDate.difference(DateTime.now()).inDays;
+    final weeksToRace = (daysToRace / 7).round();
+    final tooShort = weeksToRace < goalDistance.minWeeks;
 
     return _PageScaffold(
       eyebrow: 'Step 5 of 5',
       title: 'Build the plan',
       children: [
+        const SectionLabel('What are you training for?'),
+        const SizedBox(height: AppSpacing.md),
+        Column(
+          children: GoalDistance.values
+              .map(
+                (g) => Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _GoalDistanceTile(
+                    distance: g,
+                    selected: g == goalDistance,
+                    onTap: () => onGoalDistance(g),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: AppSpacing.lg),
         const SectionLabel('Days you can run per week'),
         const SizedBox(height: AppSpacing.md),
         Row(
@@ -779,7 +831,7 @@ class _PlanPage extends StatelessWidget {
               )
               .toList(),
         ),
-        const SizedBox(height: AppSpacing.xl),
+        const SizedBox(height: AppSpacing.lg),
         const SectionLabel('Target race date'),
         const SizedBox(height: AppSpacing.md),
         BorderedSurface(
@@ -787,7 +839,8 @@ class _PlanPage extends StatelessWidget {
             final picked = await showDatePicker(
               context: context,
               initialDate: raceDate,
-              firstDate: DateTime.now().add(const Duration(days: 90)),
+              firstDate: DateTime.now()
+                  .add(Duration(days: goalDistance.minWeeks * 7)),
               lastDate: DateTime.now().add(const Duration(days: 730)),
             );
             if (picked != null) onRaceDate(picked);
@@ -806,7 +859,7 @@ class _PlanPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '$daysToRace days from today',
+                      '$weeksToRace weeks from today',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
@@ -816,11 +869,105 @@ class _PlanPage extends StatelessWidget {
             ],
           ),
         ),
+        if (tooShort) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            '${goalDistance.label} training really needs ≥${goalDistance.minWeeks} weeks. The plan will pad to that minimum.',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.warn,
+            ),
+          ),
+        ],
         if (predicted != null) ...[
           const SizedBox(height: AppSpacing.xxl),
-          _PredictionHero(predicted: predicted),
+          _PredictionHero(
+              predicted: predicted, goalLabel: goalDistance.label),
         ],
       ],
+    );
+  }
+}
+
+class _GoalDistanceTile extends StatelessWidget {
+  final GoalDistance distance;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _GoalDistanceTile({
+    required this.distance,
+    required this.selected,
+    required this.onTap,
+  });
+
+  String _description(GoalDistance d) => switch (d) {
+        GoalDistance.fiveK =>
+          '6-12 weeks. Great first goal if you can already run a bit.',
+        GoalDistance.tenK => '8-16 weeks. The classic step-up race.',
+        GoalDistance.halfMarathon =>
+          '10-20 weeks. Serious commitment, achievable for most.',
+        GoalDistance.marathon => '16-52 weeks. The full distance.',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: AppMotion.short,
+      curve: AppMotion.standard,
+      decoration: BoxDecoration(
+        color: selected
+            ? cs.primary.withValues(alpha: 0.10)
+            : cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: selected ? cs.primary : cs.outlineVariant,
+          width: selected ? 2 : 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(distance.label,
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 2),
+                      Text(
+                        _description(distance),
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                AnimatedScale(
+                  duration: AppMotion.short,
+                  scale: selected ? 1.0 : 0.0,
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: cs.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.check,
+                        size: 16, color: cs.onPrimary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -876,7 +1023,11 @@ class _SegmentTile extends StatelessWidget {
 
 class _PredictionHero extends StatelessWidget {
   final Duration predicted;
-  const _PredictionHero({required this.predicted});
+  final String goalLabel;
+  const _PredictionHero({
+    required this.predicted,
+    required this.goalLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -891,7 +1042,7 @@ class _PredictionHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionLabel('Your projected marathon time', color: cs.primary),
+          SectionLabel('Your projected $goalLabel time', color: cs.primary),
           const SizedBox(height: AppSpacing.md),
           HeroNumber(
             formatDuration(predicted),

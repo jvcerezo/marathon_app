@@ -114,6 +114,18 @@ class $UserProfilesTable extends UserProfiles
     requiredDuringInsert: false,
     defaultValue: const Constant(4),
   );
+  static const VerificationMeta _goalDistanceMeta = const VerificationMeta(
+    'goalDistance',
+  );
+  @override
+  late final GeneratedColumn<String> goalDistance = GeneratedColumn<String>(
+    'goal_distance',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('marathon'),
+  );
   static const VerificationMeta _targetMarathonDateMeta =
       const VerificationMeta('targetMarathonDate');
   @override
@@ -169,6 +181,7 @@ class $UserProfilesTable extends UserProfiles
     recentRunDistanceM,
     recentRunDurationSec,
     daysPerWeek,
+    goalDistance,
     targetMarathonDate,
     goalMarathonTimeSec,
     createdAt,
@@ -267,6 +280,15 @@ class $UserProfilesTable extends UserProfiles
         ),
       );
     }
+    if (data.containsKey('goal_distance')) {
+      context.handle(
+        _goalDistanceMeta,
+        goalDistance.isAcceptableOrUnknown(
+          data['goal_distance']!,
+          _goalDistanceMeta,
+        ),
+      );
+    }
     if (data.containsKey('target_marathon_date')) {
       context.handle(
         _targetMarathonDateMeta,
@@ -352,6 +374,10 @@ class $UserProfilesTable extends UserProfiles
         DriftSqlType.int,
         data['${effectivePrefix}days_per_week'],
       )!,
+      goalDistance: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}goal_distance'],
+      )!,
       targetMarathonDate: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}target_marathon_date'],
@@ -388,6 +414,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
   final double? recentRunDistanceM;
   final int? recentRunDurationSec;
   final int daysPerWeek;
+  final String goalDistance;
   final DateTime targetMarathonDate;
   final int? goalMarathonTimeSec;
   final DateTime createdAt;
@@ -403,6 +430,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
     this.recentRunDistanceM,
     this.recentRunDurationSec,
     required this.daysPerWeek,
+    required this.goalDistance,
     required this.targetMarathonDate,
     this.goalMarathonTimeSec,
     required this.createdAt,
@@ -425,6 +453,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
       map['recent_run_duration_sec'] = Variable<int>(recentRunDurationSec);
     }
     map['days_per_week'] = Variable<int>(daysPerWeek);
+    map['goal_distance'] = Variable<String>(goalDistance);
     map['target_marathon_date'] = Variable<DateTime>(targetMarathonDate);
     if (!nullToAbsent || goalMarathonTimeSec != null) {
       map['goal_marathon_time_sec'] = Variable<int>(goalMarathonTimeSec);
@@ -450,6 +479,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
           ? const Value.absent()
           : Value(recentRunDurationSec),
       daysPerWeek: Value(daysPerWeek),
+      goalDistance: Value(goalDistance),
       targetMarathonDate: Value(targetMarathonDate),
       goalMarathonTimeSec: goalMarathonTimeSec == null && nullToAbsent
           ? const Value.absent()
@@ -479,6 +509,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
         json['recentRunDurationSec'],
       ),
       daysPerWeek: serializer.fromJson<int>(json['daysPerWeek']),
+      goalDistance: serializer.fromJson<String>(json['goalDistance']),
       targetMarathonDate: serializer.fromJson<DateTime>(
         json['targetMarathonDate'],
       ),
@@ -503,6 +534,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
       'recentRunDistanceM': serializer.toJson<double?>(recentRunDistanceM),
       'recentRunDurationSec': serializer.toJson<int?>(recentRunDurationSec),
       'daysPerWeek': serializer.toJson<int>(daysPerWeek),
+      'goalDistance': serializer.toJson<String>(goalDistance),
       'targetMarathonDate': serializer.toJson<DateTime>(targetMarathonDate),
       'goalMarathonTimeSec': serializer.toJson<int?>(goalMarathonTimeSec),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -521,6 +553,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
     Value<double?> recentRunDistanceM = const Value.absent(),
     Value<int?> recentRunDurationSec = const Value.absent(),
     int? daysPerWeek,
+    String? goalDistance,
     DateTime? targetMarathonDate,
     Value<int?> goalMarathonTimeSec = const Value.absent(),
     DateTime? createdAt,
@@ -540,6 +573,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
         ? recentRunDurationSec.value
         : this.recentRunDurationSec,
     daysPerWeek: daysPerWeek ?? this.daysPerWeek,
+    goalDistance: goalDistance ?? this.goalDistance,
     targetMarathonDate: targetMarathonDate ?? this.targetMarathonDate,
     goalMarathonTimeSec: goalMarathonTimeSec.present
         ? goalMarathonTimeSec.value
@@ -567,6 +601,9 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
       daysPerWeek: data.daysPerWeek.present
           ? data.daysPerWeek.value
           : this.daysPerWeek,
+      goalDistance: data.goalDistance.present
+          ? data.goalDistance.value
+          : this.goalDistance,
       targetMarathonDate: data.targetMarathonDate.present
           ? data.targetMarathonDate.value
           : this.targetMarathonDate,
@@ -591,6 +628,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
           ..write('recentRunDistanceM: $recentRunDistanceM, ')
           ..write('recentRunDurationSec: $recentRunDurationSec, ')
           ..write('daysPerWeek: $daysPerWeek, ')
+          ..write('goalDistance: $goalDistance, ')
           ..write('targetMarathonDate: $targetMarathonDate, ')
           ..write('goalMarathonTimeSec: $goalMarathonTimeSec, ')
           ..write('createdAt: $createdAt, ')
@@ -611,6 +649,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
     recentRunDistanceM,
     recentRunDurationSec,
     daysPerWeek,
+    goalDistance,
     targetMarathonDate,
     goalMarathonTimeSec,
     createdAt,
@@ -630,6 +669,7 @@ class UserProfileRow extends DataClass implements Insertable<UserProfileRow> {
           other.recentRunDistanceM == this.recentRunDistanceM &&
           other.recentRunDurationSec == this.recentRunDurationSec &&
           other.daysPerWeek == this.daysPerWeek &&
+          other.goalDistance == this.goalDistance &&
           other.targetMarathonDate == this.targetMarathonDate &&
           other.goalMarathonTimeSec == this.goalMarathonTimeSec &&
           other.createdAt == this.createdAt &&
@@ -647,6 +687,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
   final Value<double?> recentRunDistanceM;
   final Value<int?> recentRunDurationSec;
   final Value<int> daysPerWeek;
+  final Value<String> goalDistance;
   final Value<DateTime> targetMarathonDate;
   final Value<int?> goalMarathonTimeSec;
   final Value<DateTime> createdAt;
@@ -663,6 +704,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
     this.recentRunDistanceM = const Value.absent(),
     this.recentRunDurationSec = const Value.absent(),
     this.daysPerWeek = const Value.absent(),
+    this.goalDistance = const Value.absent(),
     this.targetMarathonDate = const Value.absent(),
     this.goalMarathonTimeSec = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -680,6 +722,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
     this.recentRunDistanceM = const Value.absent(),
     this.recentRunDurationSec = const Value.absent(),
     this.daysPerWeek = const Value.absent(),
+    this.goalDistance = const Value.absent(),
     required DateTime targetMarathonDate,
     this.goalMarathonTimeSec = const Value.absent(),
     required DateTime createdAt,
@@ -705,6 +748,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
     Expression<double>? recentRunDistanceM,
     Expression<int>? recentRunDurationSec,
     Expression<int>? daysPerWeek,
+    Expression<String>? goalDistance,
     Expression<DateTime>? targetMarathonDate,
     Expression<int>? goalMarathonTimeSec,
     Expression<DateTime>? createdAt,
@@ -724,6 +768,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
       if (recentRunDurationSec != null)
         'recent_run_duration_sec': recentRunDurationSec,
       if (daysPerWeek != null) 'days_per_week': daysPerWeek,
+      if (goalDistance != null) 'goal_distance': goalDistance,
       if (targetMarathonDate != null)
         'target_marathon_date': targetMarathonDate,
       if (goalMarathonTimeSec != null)
@@ -745,6 +790,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
     Value<double?>? recentRunDistanceM,
     Value<int?>? recentRunDurationSec,
     Value<int>? daysPerWeek,
+    Value<String>? goalDistance,
     Value<DateTime>? targetMarathonDate,
     Value<int?>? goalMarathonTimeSec,
     Value<DateTime>? createdAt,
@@ -762,6 +808,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
       recentRunDistanceM: recentRunDistanceM ?? this.recentRunDistanceM,
       recentRunDurationSec: recentRunDurationSec ?? this.recentRunDurationSec,
       daysPerWeek: daysPerWeek ?? this.daysPerWeek,
+      goalDistance: goalDistance ?? this.goalDistance,
       targetMarathonDate: targetMarathonDate ?? this.targetMarathonDate,
       goalMarathonTimeSec: goalMarathonTimeSec ?? this.goalMarathonTimeSec,
       createdAt: createdAt ?? this.createdAt,
@@ -805,6 +852,9 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
     if (daysPerWeek.present) {
       map['days_per_week'] = Variable<int>(daysPerWeek.value);
     }
+    if (goalDistance.present) {
+      map['goal_distance'] = Variable<String>(goalDistance.value);
+    }
     if (targetMarathonDate.present) {
       map['target_marathon_date'] = Variable<DateTime>(
         targetMarathonDate.value,
@@ -838,6 +888,7 @@ class UserProfilesCompanion extends UpdateCompanion<UserProfileRow> {
           ..write('recentRunDistanceM: $recentRunDistanceM, ')
           ..write('recentRunDurationSec: $recentRunDurationSec, ')
           ..write('daysPerWeek: $daysPerWeek, ')
+          ..write('goalDistance: $goalDistance, ')
           ..write('targetMarathonDate: $targetMarathonDate, ')
           ..write('goalMarathonTimeSec: $goalMarathonTimeSec, ')
           ..write('createdAt: $createdAt, ')
@@ -3199,6 +3250,7 @@ typedef $$UserProfilesTableCreateCompanionBuilder =
       Value<double?> recentRunDistanceM,
       Value<int?> recentRunDurationSec,
       Value<int> daysPerWeek,
+      Value<String> goalDistance,
       required DateTime targetMarathonDate,
       Value<int?> goalMarathonTimeSec,
       required DateTime createdAt,
@@ -3217,6 +3269,7 @@ typedef $$UserProfilesTableUpdateCompanionBuilder =
       Value<double?> recentRunDistanceM,
       Value<int?> recentRunDurationSec,
       Value<int> daysPerWeek,
+      Value<String> goalDistance,
       Value<DateTime> targetMarathonDate,
       Value<int?> goalMarathonTimeSec,
       Value<DateTime> createdAt,
@@ -3280,6 +3333,11 @@ class $$UserProfilesTableFilterComposer
 
   ColumnFilters<int> get daysPerWeek => $composableBuilder(
     column: $table.daysPerWeek,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get goalDistance => $composableBuilder(
+    column: $table.goalDistance,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3363,6 +3421,11 @@ class $$UserProfilesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get goalDistance => $composableBuilder(
+    column: $table.goalDistance,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get targetMarathonDate => $composableBuilder(
     column: $table.targetMarathonDate,
     builder: (column) => ColumnOrderings(column),
@@ -3431,6 +3494,11 @@ class $$UserProfilesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get goalDistance => $composableBuilder(
+    column: $table.goalDistance,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get targetMarathonDate => $composableBuilder(
     column: $table.targetMarathonDate,
     builder: (column) => column,
@@ -3489,6 +3557,7 @@ class $$UserProfilesTableTableManager
                 Value<double?> recentRunDistanceM = const Value.absent(),
                 Value<int?> recentRunDurationSec = const Value.absent(),
                 Value<int> daysPerWeek = const Value.absent(),
+                Value<String> goalDistance = const Value.absent(),
                 Value<DateTime> targetMarathonDate = const Value.absent(),
                 Value<int?> goalMarathonTimeSec = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -3505,6 +3574,7 @@ class $$UserProfilesTableTableManager
                 recentRunDistanceM: recentRunDistanceM,
                 recentRunDurationSec: recentRunDurationSec,
                 daysPerWeek: daysPerWeek,
+                goalDistance: goalDistance,
                 targetMarathonDate: targetMarathonDate,
                 goalMarathonTimeSec: goalMarathonTimeSec,
                 createdAt: createdAt,
@@ -3523,6 +3593,7 @@ class $$UserProfilesTableTableManager
                 Value<double?> recentRunDistanceM = const Value.absent(),
                 Value<int?> recentRunDurationSec = const Value.absent(),
                 Value<int> daysPerWeek = const Value.absent(),
+                Value<String> goalDistance = const Value.absent(),
                 required DateTime targetMarathonDate,
                 Value<int?> goalMarathonTimeSec = const Value.absent(),
                 required DateTime createdAt,
@@ -3539,6 +3610,7 @@ class $$UserProfilesTableTableManager
                 recentRunDistanceM: recentRunDistanceM,
                 recentRunDurationSec: recentRunDurationSec,
                 daysPerWeek: daysPerWeek,
+                goalDistance: goalDistance,
                 targetMarathonDate: targetMarathonDate,
                 goalMarathonTimeSec: goalMarathonTimeSec,
                 createdAt: createdAt,

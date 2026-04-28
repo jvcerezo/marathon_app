@@ -62,6 +62,8 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
                 : _PredictionCard(
                     targetVdot: estimateTargetVdot(p),
                     currentVdot: estimateCurrentVdot(p),
+                    goalLabel: p.goalDistance.label,
+                    goalMeters: p.goalDistance.meters,
                   ),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -491,16 +493,20 @@ class _DailyChart extends StatelessWidget {
 class _PredictionCard extends StatelessWidget {
   final double targetVdot;
   final double currentVdot;
+  final String goalLabel;
+  final double goalMeters;
   const _PredictionCard({
     required this.targetVdot,
     required this.currentVdot,
+    required this.goalLabel,
+    required this.goalMeters,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final currentMarathon = predictRaceTime(currentVdot, kMarathon);
-    final targetMarathon = predictRaceTime(targetVdot, kMarathon);
+    final currentMarathon = predictRaceTime(currentVdot, goalMeters);
+    final targetMarathon = predictRaceTime(targetVdot, goalMeters);
     final delta = currentMarathon - targetMarathon;
 
     return Container(
@@ -517,7 +523,7 @@ class _PredictionCard extends StatelessWidget {
             children: [
               Icon(PhosphorIconsDuotone.medal, color: cs.primary, size: 20),
               const SizedBox(width: 8),
-              SectionLabel('Marathon prediction'),
+              SectionLabel('$goalLabel prediction'),
             ],
           ),
           const SizedBox(height: AppSpacing.md),

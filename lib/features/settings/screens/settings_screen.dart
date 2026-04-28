@@ -105,6 +105,11 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: AppSpacing.xl),
               const _SectionHeader('Training'),
               _SettingsTile(
+                label: 'Goal distance',
+                value: profile.goalDistance.label,
+                onTap: () => _editGoalDistance(context, ref, profile),
+              ),
+              _SettingsTile(
                 label: 'Days per week',
                 value: '${profile.daysPerWeek}',
                 onTap: () => _editDaysPerWeek(context, ref, profile),
@@ -312,6 +317,30 @@ class SettingsScreen extends ConsumerWidget {
     );
     if (result != null) {
       await _saveProfile(ref, profile.copyWith(fitnessLevel: result));
+    }
+  }
+
+  Future<void> _editGoalDistance(
+    BuildContext context,
+    WidgetRef ref,
+    UserProfile profile,
+  ) async {
+    final result = await showModalBottomSheet<GoalDistance>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xxl)),
+      ),
+      builder: (c) => _OptionSheet<GoalDistance>(
+        title: 'Goal distance',
+        options: GoalDistance.values
+            .map((g) => (value: g, label: g.label))
+            .toList(),
+        selected: profile.goalDistance,
+      ),
+    );
+    if (result != null) {
+      await _saveProfile(ref, profile.copyWith(goalDistance: result));
     }
   }
 

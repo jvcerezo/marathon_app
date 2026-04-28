@@ -1,5 +1,26 @@
 enum Gender { male, female, other }
 
+enum GoalDistance {
+  fiveK(5000, '5K', 6, 16),
+  tenK(10000, '10K', 8, 20),
+  halfMarathon(21097.5, 'Half Marathon', 10, 24),
+  marathon(42195, 'Marathon', 16, 60);
+
+  /// Race distance in meters.
+  final double meters;
+  final String label;
+
+  /// Minimum recommended weeks of training before the race.
+  final int minWeeks;
+
+  /// Maximum the engine will plan for (caps overly long timelines).
+  final int maxWeeks;
+
+  const GoalDistance(this.meters, this.label, this.minWeeks, this.maxWeeks);
+
+  double get km => meters / 1000.0;
+}
+
 enum FitnessLevel {
   /// Cannot run a continuous mile right now.
   none,
@@ -31,7 +52,10 @@ class UserProfile {
   /// Days the user wants to run per week. Drives plan density.
   final int daysPerWeek;
 
-  /// Target marathon date. Plan generator targets this.
+  /// What distance the user is training for.
+  final GoalDistance goalDistance;
+
+  /// Target race date. Plan generator anchors the taper to this.
   final DateTime targetMarathonDate;
 
   /// Optional goal time. Null = "just finish".
@@ -49,6 +73,7 @@ class UserProfile {
     required this.weightKg,
     required this.fitnessLevel,
     required this.daysPerWeek,
+    required this.goalDistance,
     required this.targetMarathonDate,
     required this.createdAt,
     required this.updatedAt,
@@ -77,6 +102,7 @@ class UserProfile {
     double? recentRunDistanceM,
     Duration? recentRunDuration,
     int? daysPerWeek,
+    GoalDistance? goalDistance,
     DateTime? targetMarathonDate,
     Duration? goalMarathonTime,
     DateTime? updatedAt,
@@ -92,6 +118,7 @@ class UserProfile {
       recentRunDistanceM: recentRunDistanceM ?? this.recentRunDistanceM,
       recentRunDuration: recentRunDuration ?? this.recentRunDuration,
       daysPerWeek: daysPerWeek ?? this.daysPerWeek,
+      goalDistance: goalDistance ?? this.goalDistance,
       targetMarathonDate: targetMarathonDate ?? this.targetMarathonDate,
       goalMarathonTime: goalMarathonTime ?? this.goalMarathonTime,
       createdAt: createdAt,

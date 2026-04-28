@@ -32,6 +32,7 @@ class ProfileRepository {
             recentRunDistanceM: Value(profile.recentRunDistanceM),
             recentRunDurationSec: Value(profile.recentRunDuration?.inSeconds),
             daysPerWeek: Value(profile.daysPerWeek),
+            goalDistance: Value(profile.goalDistance.name),
             targetMarathonDate: profile.targetMarathonDate,
             goalMarathonTimeSec: Value(profile.goalMarathonTime?.inSeconds),
             createdAt: profile.createdAt,
@@ -54,6 +55,10 @@ class ProfileRepository {
             ? null
             : Duration(seconds: row.recentRunDurationSec!),
         daysPerWeek: row.daysPerWeek,
+        goalDistance: GoalDistance.values.firstWhere(
+          (g) => g.name == row.goalDistance,
+          orElse: () => GoalDistance.marathon,
+        ),
         targetMarathonDate: row.targetMarathonDate,
         goalMarathonTime: row.goalMarathonTimeSec == null
             ? null

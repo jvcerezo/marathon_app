@@ -12,6 +12,8 @@ class UserProfiles extends Table {
   RealColumn get recentRunDistanceM => real().nullable()();
   IntColumn get recentRunDurationSec => integer().nullable()();
   IntColumn get daysPerWeek => integer().withDefault(const Constant(4))();
+  TextColumn get goalDistance =>
+      text().withDefault(const Constant('marathon'))();
   DateTimeColumn get targetMarathonDate => dateTime()();
   IntColumn get goalMarathonTimeSec => integer().nullable()();
   DateTimeColumn get createdAt => dateTime()();

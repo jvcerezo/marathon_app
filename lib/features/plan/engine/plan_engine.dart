@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:uuid/uuid.dart';
 
 import '../../fitness/predictor.dart';
@@ -5,14 +7,9 @@ import '../../profile/models/user_profile.dart';
 import '../models/plan_session.dart';
 import '../models/training_plan.dart';
 
-/// Generates a 52-week couch-to-marathon training plan.
-///
-/// Phases:
-///   1. Foundation (weeks 1-12)  — build aerobic base, no quality work
-///   2. Base       (weeks 13-24) — introduce easy tempo, longer long runs
-///   3. Build      (weeks 25-36) — tempo + intervals, peak long runs near 26 km
-///   4. Peak       (weeks 37-48) — marathon-pace work, long runs to 32 km
-///   5. Taper      (weeks 49-52) — reduce volume, sharpen, race
+/// Generates a training plan whose length matches the user's race date,
+/// with phase distribution proportional to the total weeks and peak
+/// volumes tuned to the chosen goal distance (5K through Marathon).
 class PlanEngine {
   final Uuid _uuid;
   final DateTime Function() _now;
@@ -27,51 +24,88 @@ class PlanEngine {
     final easyPaceStart = easyPaceSecPerKm(startVdot);
     final easyPaceEnd = easyPaceSecPerKm(targetVdot);
     final tempoPaceEnd = thresholdPaceSecPerKm(targetVdot);
-    final marathonPaceEnd = marathonPaceSecPerKm(targetVdot);
+    final goalPaceEnd = predictRaceTime(targetVdot, profile.goalDistance.meters)
+            .inSeconds /
+        (profile.goalDistance.km);
 
-    // Anchor the plan to the next Monday on/after now.
+    // Anchor the plan to the most recent Monday (could be today). This
+    // guarantees the user is inside week 1 immediately after onboarding,
+    // instead of waiting up to 6 days for "next Monday" to arrive.
     final today = DateTime(_now().year, _now().month, _now().day);
-    final daysUntilMonday = (DateTime.monday - today.weekday + 7) % 7;
-    final startsOn = today.add(Duration(days: daysUntilMonday));
+    final daysSinceMonday = (today.weekday - DateTime.monday) % 7;
+    final startsOn = today.subtract(Duration(days: daysSinceMonday));
+
+    final raceDate = _alignRaceDateToSunday(profile.targetMarathonDate);
+    final daysToRace = raceDate.difference(startsOn).inDays;
+    final rawWeeks = (daysToRace + 1) / 7;
+    final totalWeeks = rawWeeks
+        .ceil()
+        .clamp(profile.goalDistance.minWeeks, profile.goalDistance.maxWeeks);
+
+    final boundaries = _phaseBoundaries(totalWeeks);
+    final peakWeeklyKm = _peakWeeklyKm(profile.goalDistance);
+    final peakLongKm = _peakLongKm(profile.goalDistance);
+    final raceDistanceKm = profile.goalDistance.km;
 
     final fitnessFactor = _fitnessFactor(profile.fitnessLevel);
     final daysPerWeek = profile.daysPerWeek.clamp(3, 6);
     final planId = _uuid.v4();
     final sessions = <PlanSession>[];
 
-    for (int week = 1; week <= 52; week++) {
+    for (int week = 1; week <= totalWeeks; week++) {
       final weekStart = startsOn.add(Duration(days: (week - 1) * 7));
-      final phase = _phaseFor(week);
-      final isCutback = week % 4 == 0 && phase != _Phase.taper;
+      final phase = _phaseFor(week, boundaries);
+      final isCutback = _isCutback(week, totalWeeks, phase, boundaries);
 
-      final weeklyKm = _weeklyKm(week, phase, isCutback) * fitnessFactor;
-      final longKm = _longRunKm(week, phase, isCutback) * fitnessFactor;
+      double weeklyKm = _weeklyKmAt(
+            week: week,
+            totalWeeks: totalWeeks,
+            phase: phase,
+            boundaries: boundaries,
+            peakKm: peakWeeklyKm,
+          ) *
+          fitnessFactor;
+      double longKm = _longKmAt(
+            week: week,
+            totalWeeks: totalWeeks,
+            phase: phase,
+            boundaries: boundaries,
+            peakLong: peakLongKm,
+            raceKm: raceDistanceKm,
+          ) *
+          fitnessFactor;
+      if (isCutback) {
+        weeklyKm *= 0.75;
+        longKm *= 0.75;
+      }
 
-      // Pace progression: linearly interpolate easy pace from start to end VDOT.
-      final progress = (week - 1) / 51.0;
+      // Pace progression: linearly interpolate easy + tempo from start to
+      // end VDOT across the plan.
+      final progress = (week - 1) / max(1, totalWeeks - 1);
       final easyPace = _lerp(easyPaceStart, easyPaceEnd, progress);
       final tempoPace = _lerp(easyPaceStart - 30, tempoPaceEnd, progress);
-      final marathonPace = _lerp(easyPaceStart - 15, marathonPaceEnd, progress);
+      final goalPace = _lerp(easyPaceStart - 15, goalPaceEnd, progress);
 
-      final hasQuality = phase != _Phase.foundation && !isCutback &&
-          phase != _Phase.taper;
+      final hasQuality =
+          phase != _Phase.foundation && phase != _Phase.taper && !isCutback;
       final qualityType = _qualityTypeFor(week, phase);
 
-      // Distance budget after long + (optional) quality.
       double qualityKm = 0;
       if (hasQuality) {
         qualityKm = switch (qualityType) {
-          SessionType.tempo => 6 + (week / 12).clamp(0, 4),
-          SessionType.intervals => 5 + (week / 16).clamp(0, 3),
+          SessionType.tempo =>
+            (4 + week.toDouble() * 0.25).clamp(4, 10).toDouble(),
+          SessionType.intervals =>
+            (4 + week.toDouble() * 0.18).clamp(4, 8).toDouble(),
           _ => 0,
         };
       }
+
       final remainingKm = (weeklyKm - longKm - qualityKm).clamp(0, 1000);
       final easyDayCount = daysPerWeek - 1 - (hasQuality ? 1 : 0);
-      final easyKmEach = easyDayCount > 0 ? remainingKm / easyDayCount : 0.0;
+      final easyKmEach =
+          easyDayCount > 0 ? remainingKm / easyDayCount : 0.0;
 
-      // Layout days across the week: long on Sunday, quality on Wednesday,
-      // easy on remaining selected days.
       final layout = _weekLayout(daysPerWeek);
       for (int day = 1; day <= 7; day++) {
         final date = weekStart.add(Duration(days: day - 1));
@@ -100,7 +134,7 @@ class PlanEngine {
               prescribedDistanceKm: _round(longKm),
               prescribedPaceSecPerKm: easyPace,
               status: SessionStatus.scheduled,
-              notes: phase == _Phase.peak && week >= 40
+              notes: phase == _Phase.peak
                   ? 'Practice race-day fueling and pace.'
                   : null,
             );
@@ -129,7 +163,7 @@ class PlanEngine {
                 prescribedPaceSecPerKm: qualityType == SessionType.intervals
                     ? tempoPace - 20
                     : phase == _Phase.peak
-                        ? marathonPace
+                        ? goalPace
                         : tempoPace,
                 status: SessionStatus.scheduled,
                 notes: qualityType == SessionType.intervals
@@ -154,7 +188,7 @@ class PlanEngine {
       }
     }
 
-    // Replace the final Sunday with the marathon itself.
+    // Replace the final Sunday with the actual race.
     if (sessions.isNotEmpty) {
       final last = sessions.lastIndexWhere((s) => s.dayOfWeek == 7);
       if (last >= 0) {
@@ -166,77 +200,173 @@ class PlanEngine {
           weekNumber: s.weekNumber,
           dayOfWeek: s.dayOfWeek,
           type: SessionType.race,
-          prescribedDistanceKm: 42.2,
-          prescribedPaceSecPerKm: marathonPaceSecPerKm(targetVdot),
+          prescribedDistanceKm: _round(raceDistanceKm),
+          prescribedPaceSecPerKm: goalPaceEnd,
           status: SessionStatus.scheduled,
           notes: 'Race day. You earned this.',
         );
       }
     }
 
-    final marathonDate = sessions.last.scheduledDate;
     return TrainingPlan(
       id: planId,
       userId: profile.id,
       startsOn: startsOn,
-      targetMarathonDate: marathonDate,
-      totalWeeks: 52,
+      targetMarathonDate: sessions.last.scheduledDate,
+      totalWeeks: totalWeeks,
       startVdot: startVdot,
       targetVdot: targetVdot,
       sessions: sessions,
     );
   }
 
-  double _fitnessFactor(FitnessLevel level) => switch (level) {
-        FitnessLevel.none => 0.65,
-        FitnessLevel.beginner => 0.8,
-        FitnessLevel.recreational => 1.0,
-        FitnessLevel.intermediate => 1.15,
-      };
+  // ============== HELPERS ==============
 
-  _Phase _phaseFor(int week) {
-    if (week <= 12) return _Phase.foundation;
-    if (week <= 24) return _Phase.base;
-    if (week <= 36) return _Phase.build;
-    if (week <= 48) return _Phase.peak;
+  /// Snap the user-provided race date to the Sunday of its week so the
+  /// taper week ends cleanly. Sunday is the canonical race day.
+  DateTime _alignRaceDateToSunday(DateTime raceDate) {
+    final d = DateTime(raceDate.year, raceDate.month, raceDate.day);
+    final daysToSunday = (DateTime.sunday - d.weekday + 7) % 7;
+    return d.add(Duration(days: daysToSunday));
+  }
+
+  _Boundaries _phaseBoundaries(int totalWeeks) {
+    // Foundation 25%, Base 25%, Build 25%, Peak 18%, Taper 7%
+    int clampMonotonic(int v, int prev) {
+      if (v < prev) return prev;
+      if (v > totalWeeks) return totalWeeks;
+      return v;
+    }
+
+    final foundationEnd = max(1, (totalWeeks * 0.25).round());
+    final baseEnd =
+        clampMonotonic((totalWeeks * 0.50).round(), foundationEnd);
+    final buildEnd = clampMonotonic((totalWeeks * 0.75).round(), baseEnd);
+    final peakEnd = clampMonotonic((totalWeeks * 0.93).round(), buildEnd);
+    return _Boundaries(
+      foundationEnd: foundationEnd,
+      baseEnd: baseEnd,
+      buildEnd: buildEnd,
+      peakEnd: peakEnd,
+    );
+  }
+
+  _Phase _phaseFor(int week, _Boundaries b) {
+    if (week <= b.foundationEnd) return _Phase.foundation;
+    if (week <= b.baseEnd) return _Phase.base;
+    if (week <= b.buildEnd) return _Phase.build;
+    if (week <= b.peakEnd) return _Phase.peak;
     return _Phase.taper;
   }
 
-  /// Total target weekly km before fitness scaling.
-  double _weeklyKm(int week, _Phase phase, bool isCutback) {
-    double base = switch (phase) {
-      _Phase.foundation => 12 + (week - 1) * 1.5, // 12 → 28
-      _Phase.base => 28 + (week - 13) * 1.4, // 28 → 44
-      _Phase.build => 44 + (week - 25) * 1.0, // 44 → 55
-      _Phase.peak => 55 + (week - 37) * 0.8, // 55 → 64
-      _Phase.taper => switch (week) {
-          49 => 50,
-          50 => 35,
-          51 => 22,
-          52 => 50, // race week incl. 42km race day, so total still high
-          _ => 30,
-        },
-    };
-    if (isCutback) base *= 0.75;
-    return base;
+  bool _isCutback(int week, int totalWeeks, _Phase phase, _Boundaries b) {
+    if (phase == _Phase.taper) return false;
+    if (totalWeeks - week <= 2) return false; // never cut back inside taper
+    // Every 4th week within foundation/base/build/peak.
+    return week % 4 == 0;
   }
 
-  double _longRunKm(int week, _Phase phase, bool isCutback) {
-    double base = switch (phase) {
-      _Phase.foundation => 4 + (week - 1) * 0.6, // 4 → 11
-      _Phase.base => 10 + (week - 13) * 0.7, // 10 → 18
-      _Phase.build => 16 + (week - 25) * 0.9, // 16 → 26
-      _Phase.peak => 24 + (week - 37) * 0.7, // 24 → 32
-      _Phase.taper => switch (week) {
-          49 => 26,
-          50 => 18,
-          51 => 12,
-          52 => 42.2, // race
-          _ => 12,
-        },
-    };
-    if (isCutback) base *= 0.7;
-    return base;
+  /// Peak weekly km the engine ramps toward, by goal distance. These are
+  /// "well-prepared" peaks — the fitness factor scales them down for
+  /// beginner profiles.
+  double _peakWeeklyKm(GoalDistance g) => switch (g) {
+        GoalDistance.fiveK => 35,
+        GoalDistance.tenK => 45,
+        GoalDistance.halfMarathon => 55,
+        GoalDistance.marathon => 65,
+      };
+
+  /// Peak long-run distance, by goal distance. A 5K runner's longest
+  /// run is ~10 km; a marathoner peaks around 32 km.
+  double _peakLongKm(GoalDistance g) => switch (g) {
+        GoalDistance.fiveK => 10,
+        GoalDistance.tenK => 16,
+        GoalDistance.halfMarathon => 22,
+        GoalDistance.marathon => 32,
+      };
+
+  /// Weekly km at week N. Ramps from 12 km in week 1 toward `peakKm`
+  /// across foundation -> base -> build -> peak, then tapers down.
+  double _weeklyKmAt({
+    required int week,
+    required int totalWeeks,
+    required _Phase phase,
+    required _Boundaries boundaries,
+    required double peakKm,
+  }) {
+    const startKm = 12.0;
+    switch (phase) {
+      case _Phase.foundation:
+        // 12 -> 0.45 * peak
+        final span = boundaries.foundationEnd;
+        final t = span <= 1 ? 1.0 : (week - 1) / (span - 1);
+        return _lerp(startKm, peakKm * 0.45, t);
+      case _Phase.base:
+        final span = boundaries.baseEnd - boundaries.foundationEnd;
+        final t = span <= 0
+            ? 1.0
+            : (week - boundaries.foundationEnd - 1) / max(1, span);
+        return _lerp(peakKm * 0.45, peakKm * 0.70, t.clamp(0, 1).toDouble());
+      case _Phase.build:
+        final span = boundaries.buildEnd - boundaries.baseEnd;
+        final t = span <= 0
+            ? 1.0
+            : (week - boundaries.baseEnd - 1) / max(1, span);
+        return _lerp(peakKm * 0.70, peakKm * 0.90, t.clamp(0, 1).toDouble());
+      case _Phase.peak:
+        final span = boundaries.peakEnd - boundaries.buildEnd;
+        final t = span <= 0
+            ? 1.0
+            : (week - boundaries.buildEnd - 1) / max(1, span);
+        return _lerp(peakKm * 0.90, peakKm, t.clamp(0, 1).toDouble());
+      case _Phase.taper:
+        final weeksLeft = totalWeeks - week;
+        if (weeksLeft >= 2) return peakKm * 0.65;
+        if (weeksLeft >= 1) return peakKm * 0.45;
+        return peakKm * 0.40; // race week (raceday km dominates)
+    }
+  }
+
+  /// Long run km at week N. Ramps from 4 km to `peakLong`, with the very
+  /// last week's "long" being the race itself (handled by the caller).
+  double _longKmAt({
+    required int week,
+    required int totalWeeks,
+    required _Phase phase,
+    required _Boundaries boundaries,
+    required double peakLong,
+    required double raceKm,
+  }) {
+    const startLong = 4.0;
+    switch (phase) {
+      case _Phase.foundation:
+        final span = boundaries.foundationEnd;
+        final t = span <= 1 ? 1.0 : (week - 1) / (span - 1);
+        return _lerp(startLong, peakLong * 0.40, t);
+      case _Phase.base:
+        final span = boundaries.baseEnd - boundaries.foundationEnd;
+        final t = span <= 0
+            ? 1.0
+            : (week - boundaries.foundationEnd - 1) / max(1, span);
+        return _lerp(peakLong * 0.40, peakLong * 0.65, t.clamp(0, 1).toDouble());
+      case _Phase.build:
+        final span = boundaries.buildEnd - boundaries.baseEnd;
+        final t = span <= 0
+            ? 1.0
+            : (week - boundaries.baseEnd - 1) / max(1, span);
+        return _lerp(peakLong * 0.65, peakLong * 0.85, t.clamp(0, 1).toDouble());
+      case _Phase.peak:
+        final span = boundaries.peakEnd - boundaries.buildEnd;
+        final t = span <= 0
+            ? 1.0
+            : (week - boundaries.buildEnd - 1) / max(1, span);
+        return _lerp(peakLong * 0.85, peakLong, t.clamp(0, 1).toDouble());
+      case _Phase.taper:
+        final weeksLeft = totalWeeks - week;
+        if (weeksLeft >= 2) return peakLong * 0.60;
+        if (weeksLeft >= 1) return peakLong * 0.40;
+        return raceKm; // race day distance (will be replaced by race session)
+    }
   }
 
   SessionType _qualityTypeFor(int week, _Phase phase) {
@@ -249,17 +379,16 @@ class PlanEngine {
   }
 
   Map<int, _Slot> _weekLayout(int daysPerWeek) {
-    // 1=Mon, 7=Sun
     final layout = <int, _Slot>{
       for (int d = 1; d <= 7; d++) d: _Slot.rest,
     };
-    layout[7] = _Slot.long; // Sunday long run
-    if (daysPerWeek >= 4) layout[3] = _Slot.quality; // Wed
+    layout[7] = _Slot.long;
+    if (daysPerWeek >= 4) layout[3] = _Slot.quality;
     final easyDays = switch (daysPerWeek) {
-      3 => [2, 4], // Tue, Thu
-      4 => [2, 5], // Tue, Fri
-      5 => [2, 4, 6], // Tue, Thu, Sat
-      6 => [2, 4, 5, 6], // Tue, Thu, Fri, Sat
+      3 => [2, 4],
+      4 => [2, 5],
+      5 => [2, 4, 6],
+      6 => [2, 4, 5, 6],
       _ => [2, 4],
     };
     for (final d in easyDays) {
@@ -268,12 +397,33 @@ class PlanEngine {
     return layout;
   }
 
+  double _fitnessFactor(FitnessLevel level) => switch (level) {
+        FitnessLevel.none => 0.65,
+        FitnessLevel.beginner => 0.8,
+        FitnessLevel.recreational => 1.0,
+        FitnessLevel.intermediate => 1.15,
+      };
+
   double _round(double km) {
     if (km <= 0) return 0;
-    return (km * 2).round() / 2; // round to nearest 0.5 km
+    return (km * 2).round() / 2;
   }
 
   double _lerp(double a, double b, double t) => a + (b - a) * t;
+}
+
+class _Boundaries {
+  final int foundationEnd;
+  final int baseEnd;
+  final int buildEnd;
+  final int peakEnd;
+
+  const _Boundaries({
+    required this.foundationEnd,
+    required this.baseEnd,
+    required this.buildEnd,
+    required this.peakEnd,
+  });
 }
 
 enum _Phase { foundation, base, build, peak, taper }
