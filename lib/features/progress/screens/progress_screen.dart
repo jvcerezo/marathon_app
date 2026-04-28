@@ -1,10 +1,12 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../../core/design/tokens.dart';
 import '../../../core/design/widgets/hero_number.dart';
 import '../../../core/design/widgets/section_label.dart';
+import '../../../core/design/widgets/view_mode_selector.dart';
 import '../../../core/format/format.dart';
 import '../../fitness/predictor.dart';
 import '../../plan/models/plan_session.dart';
@@ -13,11 +15,18 @@ import '../../profile/providers/profile_providers.dart';
 import '../../runs/models/completed_run.dart';
 import '../../runs/providers/runs_providers.dart';
 
-class ProgressScreen extends ConsumerWidget {
+class ProgressScreen extends ConsumerStatefulWidget {
   const ProgressScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProgressScreen> createState() => _ProgressScreenState();
+}
+
+class _ProgressScreenState extends ConsumerState<ProgressScreen> {
+  ViewMode _mode = ViewMode.week;
+
+  @override
+  Widget build(BuildContext context) {
     final profileAsync = ref.watch(profileProvider);
     final runsAsync = ref.watch(runsProvider);
     final planAsync = ref.watch(activePlanProvider);
@@ -26,9 +35,25 @@ class ProgressScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Progress')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.huge,
+          AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.fabSafe,
         ),
         children: [
+          const SizedBox(height: AppSpacing.sm),
+          ViewModeSelector(
+            value: _mode,
+            onChanged: (m) => setState(() => _mode = m),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          runsAsync.when(
+            loading: () => const SizedBox.shrink(),
+            error: (e, _) => Text('$e'),
+            data: (runs) => switch (_mode) {
+              ViewMode.day => _DaySummary(runs: runs),
+              ViewMode.week => _WeekSummary(runs: runs),
+              ViewMode.month => _MonthSummary(runs: runs),
+            },
+          ),
+          const SizedBox(height: AppSpacing.lg),
           profileAsync.when(
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
@@ -42,14 +67,8 @@ class ProgressScreen extends ConsumerWidget {
           const SizedBox(height: AppSpacing.lg),
           runsAsync.when(
             loading: () => const SizedBox.shrink(),
-            error: (e, _) => Text('$e'),
-            data: (runs) => Column(
-              children: [
-                _StreakCard(runs: runs),
-                const SizedBox(height: AppSpacing.lg),
-                _WeeklyMileageCard(runs: runs),
-              ],
-            ),
+            error: (e, _) => const SizedBox.shrink(),
+            data: (runs) => _StreakCard(runs: runs),
           ),
           const SizedBox(height: AppSpacing.lg),
           planAsync.when(
@@ -82,10 +101,396 @@ class ProgressScreen extends ConsumerWidget {
   }
 }
 
+// =================== TIMEFRAME SUMMARIES ===================
+
+class _DaySummary extends StatelessWidget {
+  final List<CompletedRun> runs;
+  const _DaySummary({required this.runs});
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final todayRuns = runs
+        .where((r) =>
+            r.startedAt.year == today.year &&
+            r.startedAt.month == today.month &&
+            r.startedAt.day == today.day)
+        .toList();
+    final km = todayRuns.fold<double>(0, (a, r) => a + r.distanceKm);
+    final timeSec =
+        todayRuns.fold<int>(0, (a, r) => a + r.movingTimeSec);
+    final avgPace = km > 0 ? timeSec / km : null;
+
+    return _SummaryHero(
+      eyebrow: 'TODAY',
+      title:
+          '${shortDayName(today.weekday)}, ${monthDay(today)}',
+      kmValue: km.toStringAsFixed(2),
+      runs: todayRuns.length,
+      timeSec: timeSec,
+      paceSecPerKm: avgPace,
+      icon: PhosphorIconsDuotone.sun,
+    );
+  }
+}
+
+class _WeekSummary extends StatelessWidget {
+  final List<CompletedRun> runs;
+  const _WeekSummary({required this.runs});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = today.subtract(
+        Duration(days: (today.weekday - DateTime.monday) % 7));
+    final nextMonday = monday.add(const Duration(days: 7));
+    final weekRuns = runs
+        .where((r) =>
+            !r.startedAt.isBefore(monday) && r.startedAt.isBefore(nextMonday))
+        .toList();
+    final km = weekRuns.fold<double>(0, (a, r) => a + r.distanceKm);
+    final timeSec = weekRuns.fold<int>(0, (a, r) => a + r.movingTimeSec);
+    final avgPace = km > 0 ? timeSec / km : null;
+
+    final kmByDay = List<double>.filled(7, 0);
+    for (final r in weekRuns) {
+      final i = (r.startedAt.difference(monday).inDays).clamp(0, 6);
+      kmByDay[i] += r.distanceKm;
+    }
+
+    return Column(
+      children: [
+        _SummaryHero(
+          eyebrow: 'THIS WEEK',
+          title: '${monthDay(monday)} – ${monthDay(nextMonday.subtract(const Duration(days: 1)))}',
+          kmValue: km.toStringAsFixed(1),
+          runs: weekRuns.length,
+          timeSec: timeSec,
+          paceSecPerKm: avgPace,
+          icon: PhosphorIconsDuotone.calendar,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _DailyChart(
+          values: kmByDay,
+          labels: const ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+          title: 'Daily breakdown',
+        ),
+      ],
+    );
+  }
+}
+
+class _MonthSummary extends StatelessWidget {
+  final List<CompletedRun> runs;
+  const _MonthSummary({required this.runs});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final nextMonth = DateTime(now.year, now.month + 1, 1);
+    final monthRuns = runs
+        .where((r) =>
+            !r.startedAt.isBefore(monthStart) &&
+            r.startedAt.isBefore(nextMonth))
+        .toList();
+    final km = monthRuns.fold<double>(0, (a, r) => a + r.distanceKm);
+    final timeSec = monthRuns.fold<int>(0, (a, r) => a + r.movingTimeSec);
+    final avgPace = km > 0 ? timeSec / km : null;
+
+    // bucket km per ISO week of the month
+    final perWeek = <int, double>{};
+    for (final r in monthRuns) {
+      final daysFromStart = r.startedAt.difference(monthStart).inDays;
+      final weekIdx = daysFromStart ~/ 7;
+      perWeek[weekIdx] = (perWeek[weekIdx] ?? 0) + r.distanceKm;
+    }
+    final values = List<double>.generate(5, (i) => perWeek[i] ?? 0);
+
+    return Column(
+      children: [
+        _SummaryHero(
+          eyebrow: 'THIS MONTH',
+          title: '${_monthName(now.month)} ${now.year}',
+          kmValue: km.toStringAsFixed(0),
+          runs: monthRuns.length,
+          timeSec: timeSec,
+          paceSecPerKm: avgPace,
+          icon: PhosphorIconsDuotone.calendarBlank,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _DailyChart(
+          values: values,
+          labels: const ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'],
+          title: 'Weekly breakdown',
+        ),
+      ],
+    );
+  }
+
+  String _monthName(int m) => const [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December',
+      ][m - 1];
+}
+
+class _SummaryHero extends StatelessWidget {
+  final String eyebrow;
+  final String title;
+  final String kmValue;
+  final int runs;
+  final int timeSec;
+  final double? paceSecPerKm;
+  final IconData icon;
+
+  const _SummaryHero({
+    required this.eyebrow,
+    required this.title,
+    required this.kmValue,
+    required this.runs,
+    required this.timeSec,
+    required this.paceSecPerKm,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primary.withValues(alpha: 0.18),
+            cs.primary.withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.22),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: cs.primary, size: 24),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SectionLabel(eyebrow, color: cs.primary),
+                    const SizedBox(height: 2),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          HeroNumber(kmValue, unit: 'km', size: 56),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            children: [
+              Expanded(
+                child: _SubStat(
+                  icon: PhosphorIconsRegular.flag,
+                  label: 'Runs',
+                  value: '$runs',
+                ),
+              ),
+              Expanded(
+                child: _SubStat(
+                  icon: PhosphorIconsRegular.timer,
+                  label: 'Time',
+                  value: _hmm(timeSec),
+                ),
+              ),
+              Expanded(
+                child: _SubStat(
+                  icon: PhosphorIconsRegular.gauge,
+                  label: 'Avg pace',
+                  value: paceSecPerKm == null
+                      ? '–'
+                      : formatPace(paceSecPerKm).replaceAll('/km', ''),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _hmm(int seconds) {
+    if (seconds == 0) return '–';
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    if (h == 0) return '${m}m';
+    return '${h}h${m.toString().padLeft(2, '0')}';
+  }
+}
+
+class _SubStat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _SubStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: cs.onSurfaceVariant),
+        const SizedBox(height: 4),
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.2,
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.2,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyChart extends StatelessWidget {
+  final List<double> values;
+  final List<String> labels;
+  final String title;
+  const _DailyChart({
+    required this.values,
+    required this.labels,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final maxV = values.fold<double>(0, (a, b) => b > a ? b : a);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionLabel(title),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            height: 140,
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                gridData: const FlGridData(show: false),
+                borderData: FlBorderData(show: false),
+                maxY: maxV == 0 ? 10 : maxV * 1.25,
+                titlesData: FlTitlesData(
+                  leftTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 22,
+                      getTitlesWidget: (v, _) {
+                        final i = v.toInt();
+                        if (i < 0 || i >= labels.length) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            labels[i],
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                barGroups: List.generate(values.length, (i) {
+                  return BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: values[i],
+                        width: 16,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(6),
+                        ),
+                        color: values[i] > 0
+                            ? cs.primary
+                            : cs.outlineVariant,
+                        backDrawRodData: BackgroundBarChartRodData(
+                          show: true,
+                          toY: maxV == 0 ? 10 : maxV * 1.25,
+                          color: cs.surfaceContainerHigh,
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =================== TIMEFRAME-AGNOSTIC CARDS ===================
+
 class _PredictionCard extends StatelessWidget {
   final double targetVdot;
   final double currentVdot;
-
   const _PredictionCard({
     required this.targetVdot,
     required this.currentVdot,
@@ -101,18 +506,24 @@ class _PredictionCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
-        color: cs.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: cs.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionLabel('Marathon prediction'),
-          const SizedBox(height: AppSpacing.lg),
+          Row(
+            children: [
+              Icon(PhosphorIconsDuotone.medal, color: cs.primary, size: 20),
+              const SizedBox(width: 8),
+              SectionLabel('Marathon prediction'),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
           HeroNumber(
             formatDuration(targetMarathon),
-            size: 64,
+            size: 56,
             color: cs.primary,
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -120,27 +531,24 @@ class _PredictionCard extends StatelessWidget {
             'After 12 months of consistency.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
-          const SizedBox(height: AppSpacing.xl),
+          const SizedBox(height: AppSpacing.lg),
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.md,
-            ),
+                horizontal: AppSpacing.md, vertical: AppSpacing.sm),
             decoration: BoxDecoration(
               color: cs.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Row(
               children: [
-                Icon(Icons.timer_outlined,
-                    size: 18, color: cs.onSurfaceVariant),
+                Icon(PhosphorIconsRegular.timer,
+                    size: 16, color: cs.onSurfaceVariant),
                 const SizedBox(width: AppSpacing.sm),
                 Text(
                   'Today: ${formatDuration(currentMarathon)}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const Spacer(),
                 Text(
@@ -176,19 +584,14 @@ class _StreakCard extends StatelessWidget {
     int streak = 0;
     var day = DateTime.now();
     day = DateTime(day.year, day.month, day.day);
-    while (true) {
+    for (int i = 0; i < 365; i++) {
       if (dayKeys.contains(day)) {
         streak++;
-        day = day.subtract(const Duration(days: 1));
       } else {
         final yesterday = day.subtract(const Duration(days: 1));
-        if (dayKeys.contains(yesterday)) {
-          day = yesterday;
-        } else {
-          break;
-        }
+        if (!dayKeys.contains(yesterday)) break;
       }
-      if (streak > 365) break;
+      day = day.subtract(const Duration(days: 1));
     }
     return streak;
   }
@@ -205,129 +608,49 @@ class _StreakCard extends StatelessWidget {
         border: Border.all(color: cs.outlineVariant),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: AppColors.ember.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              PhosphorIconsDuotone.fire,
+              color: AppColors.ember,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.lg),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SectionLabel('Streak', color: AppColors.ember),
-                const SizedBox(height: AppSpacing.md),
-                HeroNumber(
-                  '$streak',
-                  unit: streak == 1 ? 'day' : 'days',
-                  size: 56,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  "Rest days don't break it.",
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            Icons.local_fire_department_rounded,
-            color: AppColors.ember,
-            size: 56,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WeeklyMileageCard extends StatelessWidget {
-  final List<CompletedRun> runs;
-  const _WeeklyMileageCard({required this.runs});
-
-  Map<int, double> _byWeek() {
-    final now = DateTime.now();
-    final result = <int, double>{};
-    for (final r in runs) {
-      final daysAgo = now.difference(r.startedAt).inDays;
-      final weeksAgo = daysAgo ~/ 7;
-      if (weeksAgo > 11) continue;
-      result[weeksAgo] = (result[weeksAgo] ?? 0) + r.distanceKm;
-    }
-    return result;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final data = _byWeek();
-    final total = data.values.fold<double>(0, (a, b) => a + b);
-    final maxV = data.values.fold<double>(0, (a, b) => b > a ? b : a);
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SectionLabel('Last 12 weeks'),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              HeroNumber(
-                total.toStringAsFixed(0),
-                unit: 'km logged',
-                size: 44,
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            height: 140,
-            child: BarChart(
-              BarChartData(
-                alignment: BarChartAlignment.spaceAround,
-                gridData: const FlGridData(show: false),
-                borderData: FlBorderData(show: false),
-                maxY: maxV == 0 ? 10 : maxV * 1.2,
-                titlesData: const FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                barGroups: List.generate(12, (i) {
-                  final week = 11 - i;
-                  return BarChartGroupData(
-                    x: i,
-                    barRods: [
-                      BarChartRodData(
-                        toY: data[week] ?? 0,
-                        width: 14,
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(4),
-                        ),
-                        color: cs.primary,
-                        backDrawRodData: BackgroundBarChartRodData(
-                          show: true,
-                          toY: maxV == 0 ? 10 : maxV * 1.2,
-                          color: cs.surfaceContainerHigh,
+                const SizedBox(height: 4),
+                RichText(
+                  text: TextSpan(
+                    style: const TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.6,
+                    ),
+                    text: '$streak',
+                    children: [
+                      TextSpan(
+                        text: streak == 1 ? ' day' : ' days',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurfaceVariant,
                         ),
                       ),
                     ],
-                  );
-                }),
-              ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -363,13 +686,16 @@ class _AdherenceCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionLabel('Adherence'),
-          const SizedBox(height: AppSpacing.md),
-          HeroNumber(
-            '$pct',
-            unit: '%',
-            size: 56,
+          Row(
+            children: [
+              Icon(PhosphorIconsDuotone.target,
+                  color: cs.primary, size: 20),
+              const SizedBox(width: 8),
+              SectionLabel('Plan adherence'),
+            ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          HeroNumber('$pct', unit: '%', size: 48),
           const SizedBox(height: AppSpacing.lg),
           ClipRRect(
             borderRadius: BorderRadius.circular(8),

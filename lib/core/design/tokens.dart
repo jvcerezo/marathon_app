@@ -14,6 +14,10 @@ class AppSpacing {
   static const double xxl = 32;
   static const double xxxl = 48;
   static const double huge = 64;
+
+  /// Bottom padding for scrollable content on shell tabs, accounting
+  /// for the floating "Start run" button so it doesn't cover anything.
+  static const double fabSafe = 120;
 }
 
 class AppRadius {
