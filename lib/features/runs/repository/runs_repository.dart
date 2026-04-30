@@ -66,7 +66,7 @@ class RunsRepository {
     required double elevationGainM,
     required String? encodedPolyline,
   }) async {
-    final avgPace = distanceM > 100
+    final avgPace = (distanceM >= 10 && movingTimeSec > 0)
         ? movingTimeSec.toDouble() / (distanceM / 1000.0)
         : null;
     await (_db.update(_db.runs)..where((r) => r.id.equals(runId))).write(

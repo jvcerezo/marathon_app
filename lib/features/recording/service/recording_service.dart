@@ -122,17 +122,17 @@ class RecordingService {
 
     _gpsSub = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: LocationAccuracy.best,
         // distanceFilter MUST be 0 here. With a non-zero filter, Android
         // suppresses position emissions while the user is stationary
         // (which is the normal pre-run state), and we never get a first
         // fix. The auto-pause logic in RunRecorder already handles the
         // stationary case during the actual run.
         distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 2),
+        intervalDuration: const Duration(seconds: 1),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'Marathon',
-          notificationText: 'GPS active',
+          notificationTitle: 'Bakas',
+          notificationText: 'Recording your run',
           enableWakeLock: true,
           enableWifiLock: true,
         ),
@@ -259,7 +259,7 @@ class RecordingService {
       distanceM: recorder.distanceM,
       movingTimeSec: movingSec,
       elapsedTimeSec: elapsedSec,
-      elevationGainM: 0,
+      elevationGainM: _computeElevationGain(_allSamples),
       encodedPolyline: encoded,
     );
 
@@ -308,5 +308,31 @@ class RecordingService {
     _buffer.clear();
     _allSamples.clear();
     _setState(RecordingState.idle);
+  }
+
+  /// Sums positive elevation deltas from the sample stream, ignoring
+  /// changes smaller than the noise floor of consumer GPS altimetry.
+  /// A barometric altimeter would do better, but most Android devices
+  /// only expose GNSS altitude — so we filter aggressively.
+  static double _computeElevationGain(List<RunSample> samples) {
+    const noiseFloorM = 2.0;
+    double gain = 0;
+    double? anchor;
+    for (final s in samples) {
+      final el = s.elevation;
+      if (el == null) continue;
+      if (anchor == null) {
+        anchor = el;
+        continue;
+      }
+      final delta = el - anchor;
+      if (delta >= noiseFloorM) {
+        gain += delta;
+        anchor = el;
+      } else if (delta <= -noiseFloorM) {
+        anchor = el;
+      }
+    }
+    return gain;
   }
 }

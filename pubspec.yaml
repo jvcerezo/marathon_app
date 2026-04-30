@@ -1,7 +1,7 @@
 name: bakas
 description: "Bakas: a 365-day couch-to-marathon trainer. Personalized training plan with GPS-tracked sessions."
 publish_to: 'none'
-version: 0.2.0+2
+version: 0.3.0+3
 
 environment:
   sdk: ^3.11.3
