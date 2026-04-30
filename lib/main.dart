@@ -5,16 +5,16 @@ import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 
 void main() {
-  runApp(const ProviderScope(child: MarathonApp()));
+  runApp(const ProviderScope(child: BakasApp()));
 }
 
-class MarathonApp extends StatelessWidget {
-  const MarathonApp({super.key});
+class BakasApp extends StatelessWidget {
+  const BakasApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Marathon',
+      title: 'Bakas',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
       darkTheme: AppTheme.dark(),

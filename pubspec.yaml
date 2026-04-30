@@ -1,7 +1,7 @@
-name: marathon_app
-description: "Placeholder marathon training app. Personalized 365-day plan with GPS-tracked sessions."
+name: bakas
+description: "Bakas: a 365-day couch-to-marathon trainer. Personalized training plan with GPS-tracked sessions."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ^3.11.3

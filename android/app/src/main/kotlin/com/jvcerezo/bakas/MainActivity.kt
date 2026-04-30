@@ -1,4 +1,4 @@
-package com.jvcerezo.marathon_app
+package com.jvcerezo.bakas
 
 import io.flutter.embedding.android.FlutterActivity
 

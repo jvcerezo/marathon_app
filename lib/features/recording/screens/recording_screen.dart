@@ -910,7 +910,7 @@ class _LiveMapState extends State<_LiveMap> {
               TileLayer(
                 urlTemplate:
                     'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.jvcerezo.marathon_app',
+                userAgentPackageName: 'com.jvcerezo.bakas',
                 tileProvider: CachedTileProvider(),
               ),
               if (points.length >= 2)

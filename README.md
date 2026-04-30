@@ -1,10 +1,8 @@
-# marathon_app (placeholder name)
+# Bakas
 
-> Goal: prepare a complete beginner for their first marathon within 365 days,
-> with a personalized training plan and every session recorded via GPS.
-
-This is the working name. Rename `marathon_app` (and the namespace
-`com.jvcerezo.marathon_app`) when the brand is decided.
+> Bakas (Filipino for "trace" or "footprint") prepares a complete beginner for
+> their first marathon within 365 days, with a personalized training plan and
+> every session recorded via GPS. Every run leaves a bakas.
 
 ## What the app does
 
@@ -114,12 +112,3 @@ flutter run
 - Crash recovery: orphaned-run sweep is wired in `RunsRepository` but not
   surfaced in UI.
 
-## Renaming the app
-
-When the brand is decided, update:
-
-- The directory `marathon_app/`
-- `pubspec.yaml` — `name:` field
-- All `package:marathon_app/...` imports (find/replace across `lib/` and `test/`)
-- `android/app/build.gradle.kts` — `namespace`
-- `android/app/src/main/AndroidManifest.xml` — `android:label`
