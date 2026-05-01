@@ -78,9 +78,15 @@ jobs:
           echo "org.gradle.vfs.watch=false" >> ~/.gradle/gradle.properties
 
       - name: Build APK
+        env:
+          STADIA_API_KEY: ${{ secrets.STADIA_API_KEY }}
         run: |
           BUILD_TYPE="${{ github.event.inputs.build_type || 'release' }}"
-          flutter build apk --$BUILD_TYPE
+          if [ -z "$STADIA_API_KEY" ]; then
+            echo "::warning::STADIA_API_KEY secret not set; APK will fall back to raw OSM tiles."
+          fi
+          flutter build apk --$BUILD_TYPE \
+            --dart-define=STADIA_API_KEY="$STADIA_API_KEY"
 
       - name: Resolve version + tag
         id: ver
@@ -95,7 +101,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: marathon-apk-${{ steps.ver.outputs.tag }}
+          name: daloy-apk-${{ steps.ver.outputs.tag }}
           path: build/app/outputs/flutter-apk/app-*.apk
           if-no-files-found: error
           retention-days: 14
