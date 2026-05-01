@@ -21,18 +21,19 @@ double estimateCurrentVdot(UserProfile p) {
 }
 
 /// VDOT achievable after 12 months of consistent training, assuming the user
-/// follows the plan. Improvement caps:
-///   - Total beginner (FitnessLevel.none): +10 to +15 VDOT possible
-///   - Recreational: +5 to +8
-///   - Intermediate: +2 to +4
-/// We pick the conservative end so predicted goal times feel attainable.
+/// follows the plan. Realistic improvement caps (the previous numbers were
+/// aspirational and led to over-fast pace prescriptions in mid-plan weeks):
+///   - True beginner (none): +6 VDOT achievable in a year of consistent work
+///   - Beginner: +5
+///   - Recreational: +3
+///   - Intermediate: +2
 double estimateTargetVdot(UserProfile p) {
   final current = estimateCurrentVdot(p);
   final improvement = switch (p.fitnessLevel) {
-    FitnessLevel.none => 10.0,
-    FitnessLevel.beginner => 8.0,
-    FitnessLevel.recreational => 5.0,
-    FitnessLevel.intermediate => 3.0,
+    FitnessLevel.none => 6.0,
+    FitnessLevel.beginner => 5.0,
+    FitnessLevel.recreational => 3.0,
+    FitnessLevel.intermediate => 2.0,
   };
   // Older athletes improve less; younger athletes can stretch further.
   final ageFactor = p.ageYears > 50
@@ -76,12 +77,14 @@ Duration predictRaceTime(double vdot, double distanceM) {
 }
 
 /// Daniels' easy pace as seconds per kilometer.
-/// Easy = ~70% VO2max equivalent pace.
+///
+/// Easy ≈ marathon pace × 1.135 across all VDOT bands. The earlier
+/// `marathon + 75 sec/km` shortcut was tuned for elite VDOTs and
+/// under-slowed easy pace for slow runners — at VDOT 30, real Daniels
+/// easy is ~7:53/km vs the additive formula's 7:13/km, a 40-sec/km
+/// difference that pushes a beginner into tempo territory.
 double easyPaceSecPerKm(double vdot) {
-  // Approximation: easy pace VDOT is ~10 lower than race VDOT for marathons.
-  // Empirically: easy ~85-90s slower than marathon pace per km.
-  final marathonPace = predictRaceTime(vdot, kMarathon).inSeconds / 42.195;
-  return marathonPace + 75; // ~75 sec/km slower than marathon pace
+  return marathonPaceSecPerKm(vdot) * 1.135;
 }
 
 /// Marathon pace as seconds per kilometer.
@@ -101,11 +104,16 @@ double _percentMax(double tMin) =>
 
 double _vdotFromDemographics(UserProfile p) {
   // Baseline by fitness level, anchored at a 30yo male of healthy BMI.
+  // The previous bases (28/35/42/48) overstated baseline fitness for
+  // someone genuinely starting out — VDOT 35 is a sub-25 5K, which is
+  // not "beginner." Lower bases make demographic prescriptions more
+  // honest at the expense of being optimistic about elite users
+  // (who should be entering a recent race time anyway).
   double base = switch (p.fitnessLevel) {
-    FitnessLevel.none => 28.0,
-    FitnessLevel.beginner => 35.0,
-    FitnessLevel.recreational => 42.0,
-    FitnessLevel.intermediate => 48.0,
+    FitnessLevel.none => 22.0,         // can walk briskly; ~38min 5K equivalent
+    FitnessLevel.beginner => 30.0,      // occasional jogger; ~28min 5K
+    FitnessLevel.recreational => 40.0,  // regular runner; ~22min 5K
+    FitnessLevel.intermediate => 47.0,  // sub-20 5K
   };
 
   // Age adjustment: VO2max declines roughly 0.5% per year after 25.
@@ -122,11 +130,15 @@ double _vdotFromDemographics(UserProfile p) {
   };
   base *= genderFactor;
 
-  // BMI penalty: above 27 the runner carries excess load. Below 18.5,
-  // potentially under-fueled — small penalty too.
+  // BMI penalty: above 27 the runner carries excess cardiovascular load.
+  // Steeper than before — 2%/point capped at 13 points (BMI 40+) gives
+  // up to a 26% reduction, which better reflects how much VO2max
+  // performance is suppressed by carrying significant excess weight.
+  // Previous 1.5%/point capped at 8 only allowed -12%, far too gentle
+  // for class-I and class-II obesity.
   final bmi = p.bmi;
   if (bmi > 27) {
-    base *= 1 - 0.015 * (bmi - 27).clamp(0, 8);
+    base *= 1 - 0.02 * (bmi - 27).clamp(0, 13);
   } else if (bmi < 18.5) {
     base *= 0.97;
   }
