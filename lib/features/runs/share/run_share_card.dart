@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../core/branding/daloy_logo.dart';
 import '../../../core/design/tokens.dart';
 import '../../../core/math/polyline.dart';
 import '../models/completed_run.dart';
@@ -67,15 +68,10 @@ class RunShareCard extends StatelessWidget {
                   : const SizedBox.shrink(),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'DALOY',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 4,
-                shadows: _kTextShadow,
-              ),
+            const DaloyLogo(
+              size: 56,
+              color: Colors.white,
+              withPlate: false,
             ),
           ],
         ),
