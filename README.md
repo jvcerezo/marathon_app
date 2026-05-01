@@ -1,8 +1,8 @@
-# Bakas
+# Daloy
 
-> Bakas (Filipino for "trace" or "footprint") prepares a complete beginner for
-> their first marathon within 365 days, with a personalized training plan and
-> every session recorded via GPS. Every run leaves a bakas.
+> Daloy (Filipino for "flow") prepares a complete beginner for their first
+> marathon within 365 days, with a personalized training plan and every
+> session recorded via GPS. Find your daloy.
 
 ## What the app does
 
@@ -67,12 +67,14 @@ geolocator stream → OutlierFilter → LocationSmoother → RunRecorder
 
 - **OutlierFilter** drops samples worse than 30 m accuracy and any sample that
   would imply > 15 m/s instantaneous speed.
-- **LocationSmoother** runs independent 1D Kalman filters on lat and lon,
-  trusting newer measurements more when their reported accuracy is high.
-- **RunRecorder** computes distance via Haversine, auto-pauses below 0.5 m/s
-  for 10 s, and broadcasts cleaned samples on a stream.
+- **LocationSmoother** runs independent 1D Kalman filters on lat and lon with
+  speed-adaptive, time-aware process noise (`Q = max(0.5, |speed|)² × Δt`).
+  Smooths jitter without freezing the smoothed track during real motion.
+- **RunRecorder** computes distance via Haversine, auto-pauses below 0.3 m/s
+  for 15 s with a smoothed-position drift cross-check, and broadcasts cleaned
+  samples on a stream.
 - **RecordingService** subscribes, buffers samples, and flushes to SQLite
-  every 10 s so a crash mid-run loses at most 10 s of data.
+  every 30 s so a crash mid-run loses at most 30 s of data.
 
 The polyline gets simplified with Douglas-Peucker (4 m tolerance) and
 encoded (Google polyline format) at run finalization for compact rendering.

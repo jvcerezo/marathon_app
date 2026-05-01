@@ -72,7 +72,7 @@ class RunDetailScreen extends ConsumerWidget {
                                       urlTemplate:
                                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                       userAgentPackageName:
-                                          'com.jvcerezo.bakas',
+                                          'com.jvcerezo.daloy',
                                       tileProvider: CachedTileProvider(),
                                     ),
                                     PolylineLayer(

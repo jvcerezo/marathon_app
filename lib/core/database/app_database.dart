@@ -45,7 +45,7 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dir = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dir.path, 'bakas.sqlite'));
+    final file = File(p.join(dir.path, 'daloy.sqlite'));
 
     // Workaround for Android close-on-restart sqlite issue (drift docs).
     if (Platform.isAndroid) {

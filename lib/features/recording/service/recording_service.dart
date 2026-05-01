@@ -131,7 +131,7 @@ class RecordingService {
         distanceFilter: 0,
         intervalDuration: const Duration(seconds: 1),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'Bakas',
+          notificationTitle: 'Daloy',
           notificationText: 'Recording your run',
           enableWakeLock: true,
           enableWifiLock: true,

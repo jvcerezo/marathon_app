@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:bakas/features/fitness/predictor.dart';
-import 'package:bakas/features/plan/engine/plan_engine.dart';
-import 'package:bakas/features/plan/models/plan_session.dart';
-import 'package:bakas/features/profile/models/user_profile.dart';
+import 'package:daloy/features/fitness/predictor.dart';
+import 'package:daloy/features/plan/engine/plan_engine.dart';
+import 'package:daloy/features/plan/models/plan_session.dart';
+import 'package:daloy/features/profile/models/user_profile.dart';
 
 void main() {
   test('Riegel sanity: marathon time roughly 2x half marathon at same VDOT',

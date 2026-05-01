@@ -5,16 +5,16 @@ import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 
 void main() {
-  runApp(const ProviderScope(child: BakasApp()));
+  runApp(const ProviderScope(child: DaloyApp()));
 }
 
-class BakasApp extends StatelessWidget {
-  const BakasApp({super.key});
+class DaloyApp extends StatelessWidget {
+  const DaloyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Bakas',
+      title: 'Daloy',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
       darkTheme: AppTheme.dark(),
