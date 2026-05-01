@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Adaptive icon background plate. White matches the canonical
-         brand asset and gives the dark mountain mark maximum contrast
-         under all launcher mask shapes (circle, squircle, square). -->
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Adaptive icon background plate. Brand ink-dark behind the
+         pulse-green D-mark, matching the rest of the app's dark-first
+         aesthetic. -->
+    <color name="ic_launcher_background">#0A0E14</color>
 </resources>

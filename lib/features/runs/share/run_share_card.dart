@@ -3,7 +3,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/branding/daloy_logo.dart';
 import '../../../core/branding/daloy_wordmark.dart';
-import '../../../core/design/tokens.dart';
 import '../../../core/math/polyline.dart';
 import '../models/completed_run.dart';
 import 'route_polyline_painter.dart';
@@ -11,22 +10,25 @@ import 'route_polyline_painter.dart';
 /// Transparent share overlay rendered for the user's run. Designed to
 /// be dropped on top of the user's own photo or video in Instagram
 /// Stories. The card itself is transparent — only the text, polyline,
-/// and brand mark are drawn. White typography is used so it stays
-/// legible on most photo backgrounds.
+/// and brand mark are drawn.
+///
+/// [color] tints every visible element (stat labels, stat values,
+/// polyline, logo, wordmark). The compose screen pipes a user-picked
+/// color in here so the overlay can adapt to the photo behind it
+/// (white on a dark photo, black on a bright photo, etc.).
 ///
 /// Logical size is 360x640. Capture at pixelRatio 3 to produce a
 /// 1080x1920 PNG with alpha.
 class RunShareCard extends StatelessWidget {
   final CompletedRun run;
-
-  /// Logical width of the card. The share screen renders at this size
-  /// and captures at 3x to produce 1080x1920 px.
   final double width;
+  final Color color;
 
   const RunShareCard({
     super.key,
     required this.run,
     this.width = 360,
+    this.color = Colors.white,
   });
 
   @override
@@ -47,11 +49,23 @@ class RunShareCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _StatBlock(label: 'Distance', value: _distanceText(run.distanceKm)),
+            _StatBlock(
+              label: 'Distance',
+              value: _distanceText(run.distanceKm),
+              color: color,
+            ),
             const SizedBox(height: 28),
-            _StatBlock(label: 'Pace', value: _paceText(run.avgPaceSecPerKm)),
+            _StatBlock(
+              label: 'Pace',
+              value: _paceText(run.avgPaceSecPerKm),
+              color: color,
+            ),
             const SizedBox(height: 28),
-            _StatBlock(label: 'Time', value: _timeText(run.movingTimeSec)),
+            _StatBlock(
+              label: 'Time',
+              value: _timeText(run.movingTimeSec),
+              color: color,
+            ),
             const SizedBox(height: 36),
             Expanded(
               child: points.length >= 2
@@ -59,9 +73,9 @@ class RunShareCard extends StatelessWidget {
                       size: Size.infinite,
                       painter: RoutePolylinePainter(
                         points: points,
-                        lineColor: AppColors.pulse,
-                        startColor: AppColors.pulse,
-                        endColor: AppColors.pulse,
+                        lineColor: color,
+                        startColor: color,
+                        endColor: color,
                         strokeWidth: 5,
                         padding: 0,
                       ),
@@ -72,10 +86,10 @@ class RunShareCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
-              children: const [
-                DaloyLogo(size: 18, color: Colors.white),
-                SizedBox(width: 8),
-                DaloyWordmark(height: 22, color: Colors.white),
+              children: [
+                DaloyLogo(size: 18, color: color),
+                const SizedBox(width: 8),
+                DaloyWordmark(height: 22, color: color),
               ],
             ),
           ],
@@ -107,7 +121,12 @@ class RunShareCard extends StatelessWidget {
 class _StatBlock extends StatelessWidget {
   final String label;
   final String value;
-  const _StatBlock({required this.label, required this.value});
+  final Color color;
+  const _StatBlock({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -116,8 +135,8 @@ class _StatBlock extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: color,
             fontSize: 14,
             fontWeight: FontWeight.w500,
             letterSpacing: 0.4,
@@ -127,8 +146,8 @@ class _StatBlock extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: color,
             fontSize: 38,
             fontWeight: FontWeight.w800,
             letterSpacing: -0.5,
@@ -140,9 +159,9 @@ class _StatBlock extends StatelessWidget {
   }
 }
 
-/// Subtle dark halo behind text. Functional, not decorative — without it
-/// the white type vanishes against bright sky / pavement / shirt
-/// backgrounds when the overlay is dropped on a photo.
+/// Soft contrast halo behind text. Functional, not decorative — without
+/// it the foreground (whatever color the user picked) can vanish against
+/// busy photo backgrounds when the overlay is dropped on a photo.
 const List<Shadow> _kTextShadow = [
   Shadow(
     color: Color(0x80000000),

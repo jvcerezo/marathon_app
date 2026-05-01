@@ -35,6 +35,11 @@ class _ComposeRunScreenState extends State<ComposeRunScreen> {
   XFile? _photo;
   bool _saving = false;
 
+  // Currently-selected overlay tint. Threads into RunShareCard.color
+  // and recolors every visible element (stat text, polyline, logo,
+  // wordmark) in one shot.
+  Color _overlayColor = Colors.white;
+
   // Overlay transform — accumulated across gestures.
   Offset _offset = Offset.zero;
   double _scale = 1.0;
@@ -345,6 +350,7 @@ class _ComposeRunScreenState extends State<ComposeRunScreen> {
                                   child: RunShareCard(
                                     run: widget.run,
                                     width: canvasW,
+                                    color: _overlayColor,
                                   ),
                                 ),
                               ),
@@ -362,7 +368,19 @@ class _ComposeRunScreenState extends State<ComposeRunScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xl,
-            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.xl,
+            AppSpacing.sm,
+          ),
+          child: _ColorPicker(
+            current: _overlayColor,
+            onChanged: (c) => setState(() => _overlayColor = c),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.sm,
             AppSpacing.xl,
             AppSpacing.xl,
           ),
@@ -417,6 +435,77 @@ class _ComposeRunScreenState extends State<ComposeRunScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Horizontal row of color swatches for tinting the overlay (stat
+/// text, polyline, logo, wordmark — everything that's drawn on top
+/// of the photo). Five hand-picked options cover the common cases:
+/// white reads on dark photos, black reads on bright photos, the
+/// brand greens and ember are for stylized looks.
+class _ColorPicker extends StatelessWidget {
+  static const List<Color> _swatches = [
+    Colors.white,
+    Color(0xFF0A0E14), // ink — pairs with bright photos
+    AppColors.pulse,
+    AppColors.ember,
+    Color(0xFFFFC857), // warm yellow
+    Color(0xFFFF4D6D), // hot pink
+    Color(0xFF4D9CFF), // cool blue
+  ];
+
+  final Color current;
+  final ValueChanged<Color> onChanged;
+
+  const _ColorPicker({required this.current, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (final c in _swatches) ...[
+            _Swatch(
+              color: c,
+              selected: c == current,
+              onTap: () => onChanged(c),
+            ),
+            const SizedBox(width: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Swatch extends StatelessWidget {
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+  const _Swatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ringColor = selected ? AppColors.bone : AppColors.iron;
+    final ringWidth = selected ? 3.0 : 1.5;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(color: ringColor, width: ringWidth),
+        ),
+      ),
     );
   }
 }
