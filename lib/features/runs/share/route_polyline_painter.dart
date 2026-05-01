@@ -1,8 +1,8 @@
 import 'dart:math';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart';
+// latlong2 exports its own Path type; hide it so dart:ui's Path is unambiguous.
+import 'package:latlong2/latlong.dart' hide Path;
 
 /// Renders a GPS route as a flat polyline on a canvas, scaled to fit the
 /// available size with consistent padding. No map tiles — this is the
