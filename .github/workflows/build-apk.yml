@@ -82,11 +82,12 @@ jobs:
           STADIA_API_KEY: ${{ secrets.STADIA_API_KEY }}
         run: |
           BUILD_TYPE="${{ github.event.inputs.build_type || 'release' }}"
-          if [ -z "$STADIA_API_KEY" ]; then
+          # Strip any whitespace/newline that crept in through the secret.
+          STADIA_API_KEY_CLEAN=$(printf '%s' "$STADIA_API_KEY" | tr -d '[:space:]')
+          if [ -z "$STADIA_API_KEY_CLEAN" ]; then
             echo "::warning::STADIA_API_KEY secret not set; APK will fall back to raw OSM tiles."
           fi
-          flutter build apk --$BUILD_TYPE \
-            --dart-define=STADIA_API_KEY="$STADIA_API_KEY"
+          flutter build apk --$BUILD_TYPE --dart-define=STADIA_API_KEY="$STADIA_API_KEY_CLEAN"
 
       - name: Resolve version + tag
         id: ver
