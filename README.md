@@ -98,11 +98,38 @@ scaled by a per-fitness-level factor:
 
 ## Running the project
 
+Build-time secrets (Stadia Maps tile API key) are passed via
+`--dart-define-from-file`. Copy `.env.example` to `.env.json` and paste
+your Stadia key:
+
+```bash
+cp .env.example .env.json   # then edit .env.json with your key
+```
+
+The file is gitignored. Get a free key at https://stadiamaps.com/ and
+restrict it to applicationId `com.jvcerezo.daloy` in their dashboard.
+
+Then:
+
 ```bash
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
-flutter run
+flutter run --dart-define-from-file=.env.json
 ```
+
+Without `STADIA_API_KEY`, the app falls back to raw OSM Carto tiles —
+the app still runs, but the map looks much worse.
+
+## Map provider
+
+We use Stadia Maps (`alidade_smooth_dark` style) for Strava-grade
+rendering: detailed streets, building footprints, and a dark aesthetic
+that matches the app's theme. Free tier is 200K tile requests/month
+and tiles are cached on disk via flutter_cache_manager, so a runner
+who repeats their loop pays the network cost once.
+
+Tile attribution is rendered as an overlay on every map (Stadia TOS
+requirement).
 
 ## Known MVP gaps
 

@@ -11,7 +11,7 @@ import '../../../core/design/widgets/section_label.dart';
 import '../../../core/design/widgets/status_pill.dart';
 import '../../../core/format/format.dart';
 import '../../../core/math/geo_math.dart';
-import '../../../core/network/cached_tile_provider.dart';
+import '../../../core/network/map_tiles.dart';
 import '../../../core/preferences/user_preferences.dart';
 import '../../../core/providers/providers.dart';
 import '../../plan/models/plan_session.dart';
@@ -907,12 +907,7 @@ class _LiveMapState extends State<_LiveMap> {
               ),
             ),
             children: [
-              TileLayer(
-                urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.jvcerezo.daloy',
-                tileProvider: CachedTileProvider(),
-              ),
+              MapTiles.baseLayer(),
               if (points.length >= 2)
                 PolylineLayer(
                   polylines: [
@@ -936,6 +931,7 @@ class _LiveMapState extends State<_LiveMap> {
                     ),
                   ],
                 ),
+              MapTiles.attribution(),
             ],
           ),
         ),
