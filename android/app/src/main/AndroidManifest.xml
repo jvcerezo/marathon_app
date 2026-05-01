@@ -42,11 +42,27 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- FileProvider so we can grant Instagram a content:// URI to
+             our share-card PNG. Required for the Stories sticker
+             intent to read the file across app boundaries. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
     </application>
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Lets us detect whether Instagram is installed before we try
+             to launch the Stories sticker intent. -->
+        <package android:name="com.instagram.android"/>
     </queries>
 </manifest>

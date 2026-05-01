@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Mirrors getCacheDir() so the temp PNGs we write for share intents
+         can be exposed as content:// URIs to other apps (Instagram, etc). -->
+    <cache-path name="cache" path="."/>
+    <files-path name="files" path="."/>
+</paths>

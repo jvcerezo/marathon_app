@@ -11,12 +11,17 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/design/tokens.dart';
 import '../models/completed_run.dart';
 import 'run_share_card.dart';
+import 'stories_share_channel.dart';
 
-/// Full-screen share preview. The card itself is a transparent overlay
+/// Full-screen share preview. The card is a transparent PNG overlay
 /// designed to be dropped over a user-supplied photo or video in
-/// Stories. The preview background is a placeholder gradient that
-/// communicates "your photo will go here" — it isn't part of the
-/// captured PNG (the RepaintBoundary wraps only the card).
+/// Stories. Two share actions:
+///
+///   1. **Share to Stories** — uses Instagram's sticker intent so the
+///      overlay arrives draggable + resizable on top of the user's
+///      chosen background. This is the Strava behavior.
+///   2. **Other apps** — system share sheet for everything else
+///      (Twitter, save to Files, etc).
 class ShareRunScreen extends StatefulWidget {
   final CompletedRun run;
   const ShareRunScreen({super.key, required this.run});
@@ -28,8 +33,46 @@ class ShareRunScreen extends StatefulWidget {
 class _ShareRunScreenState extends State<ShareRunScreen> {
   final GlobalKey _cardKey = GlobalKey();
   bool _busy = false;
+  bool _instagramAvailable = false;
 
-  Future<void> _share() async {
+  @override
+  void initState() {
+    super.initState();
+    _checkInstagram();
+  }
+
+  Future<void> _checkInstagram() async {
+    final available = await StoriesShareChannel.isInstagramInstalled();
+    if (mounted) {
+      setState(() => _instagramAvailable = available);
+    }
+  }
+
+  Future<void> _shareToStories() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final file = await _captureToFile();
+      await StoriesShareChannel.shareToInstagramStories(file.path);
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      final message = e.code == 'ig-not-installed'
+          ? 'Instagram isn\'t installed on this device.'
+          : 'Could not open Instagram Stories: ${e.message ?? 'unknown error'}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not prepare share image: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _shareViaSystemSheet() async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -42,11 +85,10 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
             box == null ? null : box.localToGlobal(Offset.zero) & box.size,
       );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not prepare share image: $e')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not prepare share image: $e')),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -55,15 +97,16 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
   Future<File> _captureToFile() async {
     final boundary = _cardKey.currentContext!.findRenderObject()
         as RenderRepaintBoundary;
-    // Capture at 3x DPR so a 360x640 logical card becomes a 1080x1920 PNG.
-    // The card itself has a transparent background, so the resulting PNG
-    // is alpha-transparent and ready to overlay on any photo.
+    // 3x DPR → 1080x1920 PNG with alpha, ready for IG Stories.
     final image = await boundary.toImage(pixelRatio: 3.0);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     if (byteData == null) {
       throw StateError('Failed to encode share card to PNG.');
     }
     final bytes = byteData.buffer.asUint8List();
+    // Cache dir is what FileProvider exposes via the cache-path entry in
+    // res/xml/file_paths.xml — Instagram needs a content:// URI it can
+    // read across the app boundary.
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/daloy-run-${widget.run.id}.png');
     await file.writeAsBytes(bytes, flush: true);
@@ -82,7 +125,8 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
           iconTheme: const IconThemeData(color: AppColors.bone),
           title: const Text(
             'Share',
-            style: TextStyle(color: AppColors.bone, fontWeight: FontWeight.w600),
+            style:
+                TextStyle(color: AppColors.bone, fontWeight: FontWeight.w600),
           ),
           actions: [
             IconButton(
@@ -102,7 +146,8 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
                   AppSpacing.xl, AppSpacing.sm, AppSpacing.xl, AppSpacing.md,
                 ),
                 child: Text(
-                  'Drop this overlay onto your photo or video in Instagram Stories.',
+                  'Share to Stories drops the overlay on as a draggable '
+                  'sticker, with your photo or video as the background.',
                   style: TextStyle(
                     color: AppColors.fog,
                     fontSize: 12,
@@ -135,9 +180,7 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
                                 // photo or video goes here." NOT included
                                 // in the capture — the RepaintBoundary
                                 // wraps only the overlay.
-                                Positioned.fill(
-                                  child: const _PreviewBackdrop(),
-                                ),
+                                const Positioned.fill(child: _PreviewBackdrop()),
                                 // Capture target: transparent overlay only.
                                 RepaintBoundary(
                                   key: _cardKey,
@@ -157,37 +200,73 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.xl),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : _share,
-                    icon: _busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.ink,
+                  AppSpacing.xl,
+                  AppSpacing.lg,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                ),
+                child: Column(
+                  children: [
+                    if (_instagramAvailable)
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: FilledButton.icon(
+                          onPressed: _busy ? null : _shareToStories,
+                          icon: _busy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.ink,
+                                  ),
+                                )
+                              : const Icon(PhosphorIconsRegular.instagramLogo),
+                          label: Text(
+                            _busy ? 'Preparing…' : 'Share to Stories',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
                             ),
-                          )
-                        : const Icon(PhosphorIconsRegular.shareFat),
-                    label: Text(
-                      _busy ? 'Preparing…' : 'Share',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.pulse,
+                            foregroundColor: AppColors.ink,
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_instagramAvailable) const SizedBox(height: AppSpacing.md),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: OutlinedButton.icon(
+                        onPressed: _busy ? null : _shareViaSystemSheet,
+                        icon: const Icon(
+                          PhosphorIconsRegular.shareFat,
+                          color: AppColors.bone,
+                        ),
+                        label: Text(
+                          _instagramAvailable ? 'Other apps' : 'Share',
+                          style: const TextStyle(
+                            color: AppColors.bone,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppColors.iron),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                        ),
                       ),
                     ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.pulse,
-                      foregroundColor: AppColors.ink,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                    ),
-                  ),
+                  ],
                 ),
               ),
             ],
@@ -205,38 +284,18 @@ class _PreviewBackdrop extends StatelessWidget {
   const _PreviewBackdrop();
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFF2A3340),
-                  Color(0xFF161B25),
-                  Color(0xFF0E1218),
-                ],
-              ),
-            ),
-          ),
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF2A3340),
+            Color(0xFF161B25),
+            Color(0xFF0E1218),
+          ],
         ),
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(
-              'YOUR PHOTO',
-              style: TextStyle(
-                color: const Color(0xFF1F2630).withValues(alpha: 0.0),
-                fontSize: 44,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 4,
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
