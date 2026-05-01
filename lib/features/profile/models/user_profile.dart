@@ -55,11 +55,19 @@ class UserProfile {
   /// What distance the user is training for.
   final GoalDistance goalDistance;
 
-  /// Target race date. Plan generator anchors the taper to this.
+  /// Target race date. Used by the plan generator only when
+  /// [hasRaceGoal] is true; otherwise the field is held but ignored
+  /// (we keep storing a value so existing rows don't need a complex
+  /// nullable migration).
   final DateTime targetMarathonDate;
 
   /// Optional goal time. Null = "just finish".
   final Duration? goalMarathonTime;
+
+  /// True = user is training for a specific race day; the plan tapers
+  /// to that date. False = open-ended progressive plan that ramps
+  /// volume + introduces quality without a race anchor.
+  final bool hasRaceGoal;
 
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -80,6 +88,7 @@ class UserProfile {
     this.recentRunDistanceM,
     this.recentRunDuration,
     this.goalMarathonTime,
+    this.hasRaceGoal = true,
   });
 
   /// First name only, useful for compact greetings.
@@ -105,6 +114,7 @@ class UserProfile {
     GoalDistance? goalDistance,
     DateTime? targetMarathonDate,
     Duration? goalMarathonTime,
+    bool? hasRaceGoal,
     DateTime? updatedAt,
   }) {
     return UserProfile(
@@ -121,6 +131,7 @@ class UserProfile {
       goalDistance: goalDistance ?? this.goalDistance,
       targetMarathonDate: targetMarathonDate ?? this.targetMarathonDate,
       goalMarathonTime: goalMarathonTime ?? this.goalMarathonTime,
+      hasRaceGoal: hasRaceGoal ?? this.hasRaceGoal,
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );

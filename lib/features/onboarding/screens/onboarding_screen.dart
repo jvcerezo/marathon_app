@@ -38,6 +38,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   GoalDistance _goalDistance = GoalDistance.marathon;
   DateTime _raceDate = DateTime.now().add(const Duration(days: 365));
   bool _userPickedRaceDate = false;
+  bool _hasRaceGoal = true;
 
   void _onGoalDistanceChange(GoalDistance g) {
     setState(() {
@@ -110,12 +111,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       daysPerWeek: _daysPerWeek,
       goalDistance: _goalDistance,
       targetMarathonDate: _raceDate,
+      hasRaceGoal: _hasRaceGoal,
       createdAt: now,
       updatedAt: now,
     );
     await ref.read(profileRepositoryProvider).save(profile);
     final engine = ref.read(planEngineProvider);
-    final plan = engine.generate(profile);
+    final plan = _hasRaceGoal
+        ? engine.generate(profile)
+        : engine.generateProgressive(profile);
     await ref.read(planRepositoryProvider).save(plan);
     ref.invalidate(activePlanProvider);
     ref.invalidate(todaySessionProvider);
@@ -193,6 +197,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       daysPerWeek: _daysPerWeek,
                       raceDate: _raceDate,
                       goalDistance: _goalDistance,
+                      hasRaceGoal: _hasRaceGoal,
                       age: _age,
                       gender: _gender,
                       heightCm: _heightCm,
@@ -205,6 +210,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       onDays: (v) => setState(() => _daysPerWeek = v),
                       onRaceDate: _onRaceDatePicked,
                       onGoalDistance: _onGoalDistanceChange,
+                      onHasRaceGoal: (v) => setState(() => _hasRaceGoal = v),
                     ),
                   ],
                 ),
@@ -729,6 +735,7 @@ class _PlanPage extends StatelessWidget {
   final int daysPerWeek;
   final DateTime raceDate;
   final GoalDistance goalDistance;
+  final bool hasRaceGoal;
   final int? age;
   final Gender? gender;
   final double? heightCm;
@@ -739,12 +746,14 @@ class _PlanPage extends StatelessWidget {
   final ValueChanged<int> onDays;
   final ValueChanged<DateTime> onRaceDate;
   final ValueChanged<GoalDistance> onGoalDistance;
+  final ValueChanged<bool> onHasRaceGoal;
 
   const _PlanPage({
     required this.name,
     required this.daysPerWeek,
     required this.raceDate,
     required this.goalDistance,
+    required this.hasRaceGoal,
     required this.age,
     required this.gender,
     required this.heightCm,
@@ -755,6 +764,7 @@ class _PlanPage extends StatelessWidget {
     required this.onDays,
     required this.onRaceDate,
     required this.onGoalDistance,
+    required this.onHasRaceGoal,
   });
 
   @override
@@ -793,6 +803,30 @@ class _PlanPage extends StatelessWidget {
       eyebrow: 'Step 5 of 5',
       title: 'Build the plan',
       children: [
+        const SectionLabel('Training for a specific race?'),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: [
+            Expanded(
+              child: _SegmentTile(
+                label: 'Yes',
+                sublabel: 'I have a date',
+                selected: hasRaceGoal,
+                onTap: () => onHasRaceGoal(true),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: _SegmentTile(
+                label: 'No',
+                sublabel: 'just keep improving',
+                selected: !hasRaceGoal,
+                onTap: () => onHasRaceGoal(false),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
         const SectionLabel('What are you training for?'),
         const SizedBox(height: AppSpacing.md),
         Column(
@@ -831,56 +865,77 @@ class _PlanPage extends StatelessWidget {
               )
               .toList(),
         ),
-        const SizedBox(height: AppSpacing.lg),
-        const SectionLabel('Target race date'),
-        const SizedBox(height: AppSpacing.md),
-        BorderedSurface(
-          onTap: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: raceDate,
-              firstDate: DateTime.now()
-                  .add(Duration(days: goalDistance.minWeeks * 7)),
-              lastDate: DateTime.now().add(const Duration(days: 730)),
-            );
-            if (picked != null) onRaceDate(picked);
-          },
-          child: Row(
-            children: [
-              Icon(Icons.calendar_today_outlined, color: cs.onSurfaceVariant),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${monthDay(raceDate)}, ${raceDate.year}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '$weeksToRace weeks from today',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
+        if (hasRaceGoal) ...[
+          const SizedBox(height: AppSpacing.lg),
+          const SectionLabel('Target race date'),
+          const SizedBox(height: AppSpacing.md),
+          BorderedSurface(
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: raceDate,
+                firstDate: DateTime.now()
+                    .add(Duration(days: goalDistance.minWeeks * 7)),
+                lastDate: DateTime.now().add(const Duration(days: 730)),
+              );
+              if (picked != null) onRaceDate(picked);
+            },
+            child: Row(
+              children: [
+                Icon(Icons.calendar_today_outlined,
+                    color: cs.onSurfaceVariant),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${monthDay(raceDate)}, ${raceDate.year}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$weeksToRace weeks from today',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
-            ],
+                Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+              ],
+            ),
           ),
-        ),
-        if (tooShort) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            '${goalDistance.label} training really needs ≥${goalDistance.minWeeks} weeks. The plan will pad to that minimum.',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppColors.warn,
+          if (tooShort) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              '${goalDistance.label} training really needs ≥${goalDistance.minWeeks} weeks. The plan will pad to that minimum.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.warn,
+              ),
+            ),
+          ],
+        ] else ...[
+          const SizedBox(height: AppSpacing.lg),
+          BorderedSurface(
+            child: Row(
+              children: [
+                Icon(Icons.auto_awesome_outlined, color: cs.primary),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(
+                    "We'll build a 24-week plan that ramps up safely. "
+                    'Volume builds, then quality work fades in. Cutbacks '
+                    'every fourth week so you recover. Regenerate any time.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
-        if (predicted != null) ...[
+        if (predicted != null && hasRaceGoal) ...[
           const SizedBox(height: AppSpacing.xxl),
           _PredictionHero(
               predicted: predicted, goalLabel: goalDistance.label),

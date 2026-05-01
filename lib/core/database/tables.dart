@@ -16,6 +16,12 @@ class UserProfiles extends Table {
       text().withDefault(const Constant('marathon'))();
   DateTimeColumn get targetMarathonDate => dateTime()();
   IntColumn get goalMarathonTimeSec => integer().nullable()();
+  // True = training for a specific race day (uses targetMarathonDate to
+  // anchor the taper). False = open-ended progressive plan that ramps
+  // volume + introduces quality work without targeting a race.
+  // Defaults to true so existing rows behave the way they always did.
+  BoolColumn get hasRaceGoal =>
+      boolean().withDefault(const Constant(true))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

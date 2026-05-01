@@ -35,6 +35,7 @@ class ProfileRepository {
             goalDistance: Value(profile.goalDistance.name),
             targetMarathonDate: profile.targetMarathonDate,
             goalMarathonTimeSec: Value(profile.goalMarathonTime?.inSeconds),
+            hasRaceGoal: Value(profile.hasRaceGoal),
             createdAt: profile.createdAt,
             updatedAt: profile.updatedAt,
           ),
@@ -63,6 +64,7 @@ class ProfileRepository {
         goalMarathonTime: row.goalMarathonTimeSec == null
             ? null
             : Duration(seconds: row.goalMarathonTimeSec!),
+        hasRaceGoal: row.hasRaceGoal,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       );

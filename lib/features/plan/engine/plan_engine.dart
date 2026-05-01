@@ -221,6 +221,185 @@ class PlanEngine {
     );
   }
 
+  /// Open-ended **progressive** plan for users who don't have a target
+  /// race day but want to keep getting better. Phased like the race
+  /// plan (foundation → build → consolidate) but without a taper —
+  /// volume ramps to a sustained peak, quality work fades in, and
+  /// every fourth week is a 25% cutback for recovery.
+  ///
+  /// The plan ends with a "rest week" rather than a race session.
+  /// Default 24 weeks; the user can regenerate from Settings to keep
+  /// progressing.
+  TrainingPlan generateProgressive(
+    UserProfile profile, {
+    int weeks = 24,
+  }) {
+    final startVdot = estimateCurrentVdot(profile);
+    final targetVdot = estimateTargetVdot(profile);
+    final easyPaceStart = easyPaceSecPerKm(startVdot);
+    final easyPaceEnd = easyPaceSecPerKm(targetVdot);
+    final tempoPaceEnd = thresholdPaceSecPerKm(targetVdot);
+
+    final today = DateTime(_now().year, _now().month, _now().day);
+    final daysSinceMonday = (today.weekday - DateTime.monday) % 7;
+    final startsOn = today.subtract(Duration(days: daysSinceMonday));
+
+    final fitnessFactor = _fitnessFactor(profile.fitnessLevel);
+    final daysPerWeek = profile.daysPerWeek.clamp(3, 6);
+    final layout = _weekLayout(daysPerWeek);
+    final peakKm = _peakWeeklyKm(profile.goalDistance);
+    final peakLong = _peakLongKm(profile.goalDistance);
+
+    // Phase splits for a progressive plan: lighter foundation than the
+    // race version, longer build, no taper.
+    final foundationEnd = (weeks * 0.30).round().clamp(2, weeks);
+    final buildEnd = (weeks * 0.80).round().clamp(foundationEnd + 1, weeks);
+
+    final planId = _uuid.v4();
+    final sessions = <PlanSession>[];
+
+    for (int week = 1; week <= weeks; week++) {
+      final weekStart = startsOn.add(Duration(days: (week - 1) * 7));
+      final isCutback =
+          week % 4 == 0 && week < weeks; // skip cutback on the final week
+
+      // Volume curve: 12 km/wk → 0.55*peak (foundation) → 0.85*peak
+      // (build) → peak (consolidate). All scaled by fitnessFactor and
+      // optionally cut back 25% on cutback weeks.
+      double weeklyKm;
+      double longKm;
+      if (week <= foundationEnd) {
+        final t = (week - 1) / (foundationEnd - 1).clamp(1, weeks).toDouble();
+        weeklyKm = _lerp(12, peakKm * 0.55, t);
+        longKm = _lerp(4, peakLong * 0.40, t);
+      } else if (week <= buildEnd) {
+        final t = (week - foundationEnd - 1) /
+            (buildEnd - foundationEnd).clamp(1, weeks).toDouble();
+        weeklyKm = _lerp(peakKm * 0.55, peakKm * 0.85, t.clamp(0, 1));
+        longKm = _lerp(peakLong * 0.40, peakLong * 0.75, t.clamp(0, 1));
+      } else {
+        final t = (week - buildEnd - 1) /
+            (weeks - buildEnd).clamp(1, weeks).toDouble();
+        weeklyKm = _lerp(peakKm * 0.85, peakKm, t.clamp(0, 1));
+        longKm = _lerp(peakLong * 0.75, peakLong, t.clamp(0, 1));
+      }
+      weeklyKm *= fitnessFactor;
+      longKm *= fitnessFactor;
+      if (isCutback) {
+        weeklyKm *= 0.75;
+        longKm *= 0.75;
+      }
+
+      final progress = (week - 1) / (weeks - 1).clamp(1, weeks).toDouble();
+      final easyPace = _lerp(easyPaceStart, easyPaceEnd, progress);
+      final tempoPace =
+          _lerp(easyPaceStart - 30, tempoPaceEnd, progress);
+
+      // Quality only in build + consolidate phases, not on cutback weeks.
+      final hasQuality = week > foundationEnd && !isCutback;
+      final qualityType =
+          hasQuality && week.isEven ? SessionType.intervals : SessionType.tempo;
+      final qualityKm = !hasQuality
+          ? 0.0
+          : qualityType == SessionType.tempo
+              ? (4 + (week - foundationEnd) * 0.25).clamp(4, 9).toDouble()
+              : (4 + (week - foundationEnd) * 0.18).clamp(4, 7).toDouble();
+
+      final remainingKm =
+          (weeklyKm - longKm - qualityKm).clamp(0, 1000).toDouble();
+      final easyDayCount = daysPerWeek - 1 - (hasQuality ? 1 : 0);
+      final easyKmEach =
+          easyDayCount > 0 ? remainingKm / easyDayCount : 0.0;
+
+      for (int day = 1; day <= 7; day++) {
+        final date = weekStart.add(Duration(days: day - 1));
+        final slot = layout[day]!;
+        late final PlanSession session;
+        switch (slot) {
+          case _Slot.rest:
+            session = PlanSession(
+              id: _uuid.v4(),
+              planId: planId,
+              scheduledDate: date,
+              weekNumber: week,
+              dayOfWeek: day,
+              type: SessionType.rest,
+              prescribedDistanceKm: 0,
+              status: SessionStatus.rest,
+            );
+          case _Slot.long:
+            session = PlanSession(
+              id: _uuid.v4(),
+              planId: planId,
+              scheduledDate: date,
+              weekNumber: week,
+              dayOfWeek: day,
+              type: SessionType.long,
+              prescribedDistanceKm: _round(longKm),
+              prescribedPaceSecPerKm: easyPace,
+              status: SessionStatus.scheduled,
+            );
+          case _Slot.quality:
+            if (!hasQuality) {
+              session = PlanSession(
+                id: _uuid.v4(),
+                planId: planId,
+                scheduledDate: date,
+                weekNumber: week,
+                dayOfWeek: day,
+                type: SessionType.easy,
+                prescribedDistanceKm: _round(easyKmEach),
+                prescribedPaceSecPerKm: easyPace,
+                status: SessionStatus.scheduled,
+              );
+            } else {
+              session = PlanSession(
+                id: _uuid.v4(),
+                planId: planId,
+                scheduledDate: date,
+                weekNumber: week,
+                dayOfWeek: day,
+                type: qualityType,
+                prescribedDistanceKm: _round(qualityKm),
+                prescribedPaceSecPerKm: qualityType == SessionType.intervals
+                    ? tempoPace - 20
+                    : tempoPace,
+                status: SessionStatus.scheduled,
+                notes: qualityType == SessionType.intervals
+                    ? 'Warm up, then 4-6x 800m at target pace, jog recovery.'
+                    : 'Sustained tempo effort at the prescribed pace.',
+              );
+            }
+          case _Slot.easy:
+            session = PlanSession(
+              id: _uuid.v4(),
+              planId: planId,
+              scheduledDate: date,
+              weekNumber: week,
+              dayOfWeek: day,
+              type: SessionType.easy,
+              prescribedDistanceKm: _round(easyKmEach),
+              prescribedPaceSecPerKm: easyPace,
+              status: SessionStatus.scheduled,
+            );
+        }
+        sessions.add(session);
+      }
+    }
+
+    return TrainingPlan(
+      id: planId,
+      userId: profile.id,
+      startsOn: startsOn,
+      targetMarathonDate: sessions.last.scheduledDate,
+      totalWeeks: weeks,
+      startVdot: startVdot,
+      targetVdot: targetVdot,
+      type: PlanType.maintenance,
+      sessions: sessions,
+    );
+  }
+
   /// Open-ended maintenance plan after the user finishes a race or wants
   /// to coast for a while. No taper, no quality, no peak — just a stable
   /// weekly template that loops for `weeks` weeks.

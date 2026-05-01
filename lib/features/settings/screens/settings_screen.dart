@@ -392,7 +392,9 @@ class SettingsScreen extends ConsumerWidget {
     );
     if (confirm != true) return;
     final engine = ref.read(planEngineProvider);
-    final plan = engine.generate(profile);
+    final plan = profile.hasRaceGoal
+        ? engine.generate(profile)
+        : engine.generateProgressive(profile);
     await ref.read(planRepositoryProvider).save(plan);
     ref.invalidate(activePlanProvider);
     ref.invalidate(todaySessionProvider);
