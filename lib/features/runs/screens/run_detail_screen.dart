@@ -16,7 +16,7 @@ import '../../../core/math/polyline.dart';
 import '../../../core/network/map_tiles.dart';
 import '../../recording/models/run_sample.dart';
 import '../providers/runs_providers.dart';
-import '../share/share_run_screen.dart';
+import '../share/compose_run_screen.dart';
 
 class RunDetailScreen extends ConsumerWidget {
   final String runId;
@@ -59,7 +59,7 @@ class RunDetailScreen extends ConsumerWidget {
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => ShareRunScreen(run: run),
+                            builder: (_) => ComposeRunScreen(run: run),
                             fullscreenDialog: true,
                           ),
                         );
