@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../../core/design/tokens.dart';
 import '../../../core/design/widgets/hero_number.dart';
@@ -15,6 +16,7 @@ import '../../../core/math/polyline.dart';
 import '../../../core/network/map_tiles.dart';
 import '../../recording/models/run_sample.dart';
 import '../providers/runs_providers.dart';
+import '../share/share_run_screen.dart';
 
 class RunDetailScreen extends ConsumerWidget {
   final String runId;
@@ -49,6 +51,22 @@ class RunDetailScreen extends ConsumerWidget {
                   backgroundColor: cs.surface,
                   elevation: 0,
                   iconTheme: IconThemeData(color: cs.onSurface),
+                  actions: [
+                    IconButton(
+                      icon: const Icon(PhosphorIconsRegular.shareFat),
+                      tooltip: 'Share',
+                      color: cs.onSurface,
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ShareRunScreen(run: run),
+                            fullscreenDialog: true,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   flexibleSpace: hasMap
                       ? FlexibleSpaceBar(
                           background: Stack(

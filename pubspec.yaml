@@ -1,7 +1,7 @@
 name: daloy
 description: "Daloy: a 365-day couch-to-marathon trainer. Personalized training plan with GPS-tracked sessions."
 publish_to: 'none'
-version: 0.4.1+6
+version: 0.5.0+7
 
 environment:
   sdk: ^3.11.3
@@ -52,6 +52,12 @@ dependencies:
   intl: ^0.20.2
   flutter_animate: ^4.5.2
   phosphor_flutter: ^2.1.0
+
+  # Share sheet for the post-run share card.
+  # Pinned at 10.x because v11 removed the static Share API in favor of
+  # SharePlus.instance.share(ShareParams(...)); we use the simpler
+  # Share.shareXFiles call.
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:
