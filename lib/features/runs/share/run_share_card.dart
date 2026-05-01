@@ -73,9 +73,9 @@ class RunShareCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: const [
-                DaloyLogo(size: 28, color: Colors.white),
-                SizedBox(width: 10),
-                DaloyWordmark(height: 24, color: Colors.white),
+                DaloyLogo(size: 18, color: Colors.white),
+                SizedBox(width: 8),
+                DaloyWordmark(height: 22, color: Colors.white),
               ],
             ),
           ],
