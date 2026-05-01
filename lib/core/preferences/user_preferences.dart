@@ -25,12 +25,12 @@ class UserPreferences {
     );
   }
 
-  /// Defaults are battery-friendly: audio cues on, keep screen awake off.
-  /// The map stays on by default since the user has to opt-in to recording
-  /// already and the live view feels expected.
+  /// Audio cues default to OFF — the platform TTS voice on most Android
+  /// devices is jarring enough that a per-km announcement is more
+  /// annoying than helpful. Users who want it can opt in from Settings.
   static const defaults = UserPreferences(
     showMapDuringRecording: true,
-    audioCuesEnabled: true,
+    audioCuesEnabled: false,
     keepScreenAwake: false,
   );
 }
@@ -52,7 +52,7 @@ class UserPreferencesNotifier extends StateNotifier<UserPreferences> {
     _prefs = await SharedPreferences.getInstance();
     state = UserPreferences(
       showMapDuringRecording: _prefs!.getBool(_Keys.showMap) ?? true,
-      audioCuesEnabled: _prefs!.getBool(_Keys.audio) ?? true,
+      audioCuesEnabled: _prefs!.getBool(_Keys.audio) ?? false,
       keepScreenAwake: _prefs!.getBool(_Keys.screen) ?? false,
     );
   }

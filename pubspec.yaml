@@ -1,7 +1,7 @@
 name: daloy
 description: "Daloy: a 365-day couch-to-marathon trainer. Personalized training plan with GPS-tracked sessions."
 publish_to: 'none'
-version: 0.5.0+7
+version: 0.6.0+8
 
 environment:
   sdk: ^3.11.3
@@ -58,6 +58,9 @@ dependencies:
   # SharePlus.instance.share(ShareParams(...)); we use the simpler
   # Share.shareXFiles call.
   share_plus: ^10.1.4
+
+  # Live updating ongoing notification with run stats. Strava-like.
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   flutter_test:

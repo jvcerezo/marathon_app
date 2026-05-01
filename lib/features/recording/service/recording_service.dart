@@ -11,6 +11,7 @@ import '../models/raw_sample.dart';
 import '../models/run_sample.dart';
 import '../pipeline/run_recorder.dart';
 import 'audio_cue_service.dart';
+import 'live_notification_service.dart';
 
 enum RecordingState {
   /// Nothing happening.
@@ -40,6 +41,7 @@ class RecordingService {
 
   RecordingService(this._runs, {Uuid? uuid}) : _uuid = uuid ?? const Uuid();
 
+  final LiveNotificationService _liveNotif = LiveNotificationService();
   RunRecorder? _recorder;
   StreamSubscription<Position>? _gpsSub;
   StreamSubscription<RunSample>? _sampleSub;
@@ -130,9 +132,13 @@ class RecordingService {
         // stationary case during the actual run.
         distanceFilter: 0,
         intervalDuration: const Duration(seconds: 1),
+        // Required by Android for the foreground service that keeps GPS
+        // running with the screen off. Kept intentionally minimal — the
+        // user-facing live stats notification is posted separately by
+        // LiveNotificationService and is the one runners actually read.
         foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'Daloy',
-          notificationText: 'Recording your run',
+          notificationTitle: 'GPS',
+          notificationText: 'Daloy is using your location',
           enableWakeLock: true,
           enableWifiLock: true,
         ),
@@ -194,6 +200,10 @@ class RecordingService {
     if (_audioEnabled) {
       await _audio.start(recorder);
     }
+
+    // Live ongoing notification with stats — visible on lockscreen and
+    // pull-down shade without unlocking the phone.
+    await _liveNotif.start(recorder);
 
     _sampleSub = recorder.samples.listen((s) {
       _buffer.add(s);
@@ -269,6 +279,7 @@ class RecordingService {
     }
     await _audio.announceFinish(recorder.distanceM, recorder.elapsed);
     await _audio.stop();
+    await _liveNotif.stop();
     await recorder.dispose();
 
     final run = await _runs.get(runId);

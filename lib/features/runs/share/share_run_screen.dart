@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -13,9 +12,11 @@ import '../../../core/design/tokens.dart';
 import '../models/completed_run.dart';
 import 'run_share_card.dart';
 
-/// Full-screen share preview. Renders the [RunShareCard] at design size,
-/// captures it at high pixel ratio, writes a PNG to the temp dir, and
-/// hands it off to the system share sheet.
+/// Full-screen share preview. The card itself is a transparent overlay
+/// designed to be dropped over a user-supplied photo or video in
+/// Stories. The preview background is a placeholder gradient that
+/// communicates "your photo will go here" — it isn't part of the
+/// captured PNG (the RepaintBoundary wraps only the card).
 class ShareRunScreen extends StatefulWidget {
   final CompletedRun run;
   const ShareRunScreen({super.key, required this.run});
@@ -54,8 +55,9 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
   Future<File> _captureToFile() async {
     final boundary = _cardKey.currentContext!.findRenderObject()
         as RenderRepaintBoundary;
-    // Capture at 3x DPR so a 360x640 logical card becomes a 1080x1920 PNG —
-    // crisp on Stories, IG feed, and most share targets.
+    // Capture at 3x DPR so a 360x640 logical card becomes a 1080x1920 PNG.
+    // The card itself has a transparent background, so the resulting PNG
+    // is alpha-transparent and ready to overlay on any photo.
     final image = await boundary.toImage(pixelRatio: 3.0);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     if (byteData == null) {
@@ -95,6 +97,20 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
         body: SafeArea(
           child: Column(
             children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.xl, AppSpacing.sm, AppSpacing.xl, AppSpacing.md,
+                ),
+                child: Text(
+                  'Drop this overlay onto your photo or video in Instagram Stories.',
+                  style: TextStyle(
+                    color: AppColors.fog,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
               Expanded(
                 child: Center(
                   child: Padding(
@@ -103,19 +119,34 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
                     ),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        // Fit the 9:16 card within the available area while
-                        // leaving room for the share button below.
                         final maxH = constraints.maxHeight;
                         final maxW = constraints.maxWidth;
                         final byHeight = maxH * 9 / 16;
                         final cardWidth = byHeight < maxW ? byHeight : maxW;
+                        final cardHeight = cardWidth * 16 / 9;
                         return ClipRRect(
                           borderRadius: BorderRadius.circular(AppRadius.xxl),
-                          child: RepaintBoundary(
-                            key: _cardKey,
-                            child: RunShareCard(
-                              run: widget.run,
-                              width: cardWidth,
+                          child: SizedBox(
+                            width: cardWidth,
+                            height: cardHeight,
+                            child: Stack(
+                              children: [
+                                // Placeholder backdrop: communicates "your
+                                // photo or video goes here." NOT included
+                                // in the capture — the RepaintBoundary
+                                // wraps only the overlay.
+                                Positioned.fill(
+                                  child: const _PreviewBackdrop(),
+                                ),
+                                // Capture target: transparent overlay only.
+                                RepaintBoundary(
+                                  key: _cardKey,
+                                  child: RunShareCard(
+                                    run: widget.run,
+                                    width: cardWidth,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         );
@@ -163,6 +194,49 @@ class _ShareRunScreenState extends State<ShareRunScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Placeholder shown behind the transparent overlay in the preview pane,
+/// to communicate "your photo or video will go here." Pure visual aid —
+/// not captured into the shared PNG.
+class _PreviewBackdrop extends StatelessWidget {
+  const _PreviewBackdrop();
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF2A3340),
+                  Color(0xFF161B25),
+                  Color(0xFF0E1218),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              'YOUR PHOTO',
+              style: TextStyle(
+                color: const Color(0xFF1F2630).withValues(alpha: 0.0),
+                fontSize: 44,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 4,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
