@@ -887,7 +887,21 @@ class _LiveMapState extends State<_LiveMap> {
     final points = widget.samples
         .map((s) => LatLng(s.lat, s.lon))
         .toList(growable: false);
-    final initial = points.isEmpty ? const LatLng(14.5995, 120.9842) : points.first;
+
+    // While we don't have a GPS fix yet, don't render the map at all —
+    // it would otherwise initialize at a default location (Manila), pull
+    // tiles there, and then jump to the user's real coords once the fix
+    // lands, which reads as a "detailed map flashing then changing".
+    // Just show the dark backdrop + acquiring overlay until we have at
+    // least one point.
+    if (points.isEmpty) {
+      return Stack(
+        children: const [
+          Positioned.fill(child: ColoredBox(color: AppColors.shade)),
+          _AcquiringOverlay(),
+        ],
+      );
+    }
 
     return Stack(
       children: [
@@ -897,7 +911,7 @@ class _LiveMapState extends State<_LiveMap> {
           child: FlutterMap(
             mapController: _controller,
             options: MapOptions(
-              initialCenter: initial,
+              initialCenter: points.first,
               initialZoom: _zoom,
               minZoom: 12,
               maxZoom: 19,
@@ -920,22 +934,20 @@ class _LiveMapState extends State<_LiveMap> {
                     ),
                   ],
                 ),
-              if (points.isNotEmpty)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: points.last,
-                      width: 28,
-                      height: 28,
-                      child: _LocationDot(animated: widget.isRecording),
-                    ),
-                  ],
-                ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: points.last,
+                    width: 28,
+                    height: 28,
+                    child: _LocationDot(animated: widget.isRecording),
+                  ),
+                ],
+              ),
               MapTiles.attribution(),
             ],
           ),
         ),
-        if (points.isEmpty) const _AcquiringOverlay(),
       ],
     );
   }
