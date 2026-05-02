@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/math/polyline.dart';
+import '../../../core/math/splits.dart';
 import '../../runs/models/completed_run.dart';
 import '../../runs/repository/runs_repository.dart';
 import '../models/raw_sample.dart';
@@ -263,6 +264,15 @@ class RecordingService {
       ),
     );
 
+    // Best contiguous split for each milestone distance (1K, 5K, 10K,
+    // half, marathon). Walked from the full unsimplified sample stream
+    // so the algorithm sees real sub-second resolution.
+    final splits = bestSplits(
+      _allSamples
+          .map((s) => (lat: s.lat, lon: s.lon, tOffsetMs: s.tOffsetMs))
+          .toList(),
+    );
+
     await _runs.finalizeRun(
       runId: runId,
       endedAt: endedAt,
@@ -271,6 +281,7 @@ class RecordingService {
       elapsedTimeSec: elapsedSec,
       elevationGainM: _computeElevationGain(_allSamples),
       encodedPolyline: encoded,
+      bestSplits: splits,
     );
 
     if (_wakelockEnabled) {

@@ -65,6 +65,7 @@ class RunsRepository {
     required int elapsedTimeSec,
     required double elevationGainM,
     required String? encodedPolyline,
+    Map<int, double?> bestSplits = const <int, double?>{},
   }) async {
     final avgPace = (distanceM >= 10 && movingTimeSec > 0)
         ? movingTimeSec.toDouble() / (distanceM / 1000.0)
@@ -78,8 +79,65 @@ class RunsRepository {
         elevationGainM: Value(elevationGainM),
         encodedPolyline: Value(encodedPolyline),
         avgPaceSecPerKm: Value(avgPace),
+        bestSplit1kSec: Value(bestSplits[1000]),
+        bestSplit5kSec: Value(bestSplits[5000]),
+        bestSplit10kSec: Value(bestSplits[10000]),
+        bestSplitHalfSec: Value(bestSplits[21098]),
+        bestSplitMarathonSec: Value(bestSplits[42195]),
       ),
     );
+  }
+
+  /// Personal records across every completed run: the fastest split for
+  /// each milestone distance. Returns a map keyed by distance (m) with
+  /// the value `(timeSec, runId)` so callers can both display the time
+  /// and link back to the run that set it. Distances with no qualifying
+  /// run are absent from the result.
+  Future<Map<int, ({double timeSec, String runId})>> personalRecords() async {
+    final rows = await _db.select(_db.runs).get();
+    final out = <int, ({double timeSec, String runId})>{};
+    void track(int distanceM, double? Function(RunRow r) extract) {
+      ({double timeSec, String runId})? best;
+      for (final r in rows) {
+        final t = extract(r);
+        if (t == null || t <= 0) continue;
+        if (best == null || t < best.timeSec) {
+          best = (timeSec: t, runId: r.id);
+        }
+      }
+      if (best != null) out[distanceM] = best;
+    }
+
+    track(1000, (r) => r.bestSplit1kSec);
+    track(5000, (r) => r.bestSplit5kSec);
+    track(10000, (r) => r.bestSplit10kSec);
+    track(21098, (r) => r.bestSplitHalfSec);
+    track(42195, (r) => r.bestSplitMarathonSec);
+    return out;
+  }
+
+  /// For one specific milestone distance, returns the top-3 run ids
+  /// ordered by best split (gold, silver, bronze). Used by the run
+  /// detail "Achievements" section to figure out whether the current
+  /// run earned a medal at this distance.
+  Future<List<({double timeSec, String runId})>> topThreeFor(
+      int targetDistanceM) async {
+    final rows = await _db.select(_db.runs).get();
+    final entries = <({double timeSec, String runId})>[];
+    for (final r in rows) {
+      final t = switch (targetDistanceM) {
+        1000 => r.bestSplit1kSec,
+        5000 => r.bestSplit5kSec,
+        10000 => r.bestSplit10kSec,
+        21098 => r.bestSplitHalfSec,
+        42195 => r.bestSplitMarathonSec,
+        _ => null,
+      };
+      if (t == null || t <= 0) continue;
+      entries.add((timeSec: t, runId: r.id));
+    }
+    entries.sort((a, b) => a.timeSec.compareTo(b.timeSec));
+    return entries.take(3).toList();
   }
 
   Future<void> linkToSession(String runId, String sessionId) async {
@@ -139,5 +197,10 @@ class RunsRepository {
         encodedPolyline: row.encodedPolyline,
         source: row.source,
         matchedSessionId: row.matchedSessionId,
+        bestSplit1kSec: row.bestSplit1kSec,
+        bestSplit5kSec: row.bestSplit5kSec,
+        bestSplit10kSec: row.bestSplit10kSec,
+        bestSplitHalfSec: row.bestSplitHalfSec,
+        bestSplitMarathonSec: row.bestSplitMarathonSec,
       );
 }

@@ -43,6 +43,15 @@ class Runs extends Table {
   TextColumn get source => text().withDefault(const Constant('gps'))();
   TextColumn get matchedSessionId => text().nullable()();
 
+  // Cached fastest contiguous split times for each milestone distance.
+  // Computed from the sample stream when the run is finalized; null if
+  // the run wasn't long enough to contain a split at that distance.
+  RealColumn get bestSplit1kSec => real().nullable()();
+  RealColumn get bestSplit5kSec => real().nullable()();
+  RealColumn get bestSplit10kSec => real().nullable()();
+  RealColumn get bestSplitHalfSec => real().nullable()();
+  RealColumn get bestSplitMarathonSec => real().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

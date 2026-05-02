@@ -23,7 +23,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -40,6 +40,13 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 5) {
             await m.addColumn(userProfiles, userProfiles.hasRaceGoal);
+          }
+          if (from < 6) {
+            await m.addColumn(runs, runs.bestSplit1kSec);
+            await m.addColumn(runs, runs.bestSplit5kSec);
+            await m.addColumn(runs, runs.bestSplit10kSec);
+            await m.addColumn(runs, runs.bestSplitHalfSec);
+            await m.addColumn(runs, runs.bestSplitMarathonSec);
           }
         },
       );

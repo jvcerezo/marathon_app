@@ -15,6 +15,7 @@ import '../../../core/math/geo_math.dart';
 import '../../../core/math/polyline.dart';
 import '../../../core/network/map_tiles.dart';
 import '../../recording/models/run_sample.dart';
+import '../models/completed_run.dart';
 import '../providers/runs_providers.dart';
 import '../share/compose_run_screen.dart';
 
@@ -192,6 +193,8 @@ class RunDetailScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.xl),
+                      _AchievementsSection(run: run),
+                      const SizedBox(height: AppSpacing.xl),
                       _ElevationSection(runId: runId),
                     ],
                   ),
@@ -236,6 +239,140 @@ class _EndMarker extends StatelessWidget {
         border: Border.all(color: AppColors.ink, width: 3),
       ),
     );
+  }
+}
+
+/// Achievements section. Shows medals (gold/silver/bronze) earned at
+/// each milestone distance — i.e. where this run ranks against the
+/// user's history. Hides when the run earned no medals.
+class _AchievementsSection extends ConsumerWidget {
+  final CompletedRun run;
+  const _AchievementsSection({required this.run});
+
+  static const List<({int distanceM, String label})> _milestones = [
+    (distanceM: 1000, label: '1K'),
+    (distanceM: 5000, label: '5K'),
+    (distanceM: 10000, label: '10K'),
+    (distanceM: 21098, label: 'Half'),
+    (distanceM: 42195, label: 'Marathon'),
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final medalsAsync = ref.watch(runMedalsProvider(run.id));
+    return medalsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (medals) {
+        if (medals.isEmpty) return const SizedBox.shrink();
+        final cs = Theme.of(context).colorScheme;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SectionLabel('Achievements'),
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(AppRadius.xl),
+                border: Border.all(color: cs.outlineVariant),
+              ),
+              child: Column(
+                children: [
+                  for (final m in _milestones)
+                    if (medals[m.distanceM] != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: _MedalRow(
+                          rank: medals[m.distanceM]!,
+                          distanceLabel: m.label,
+                          timeSec: run.bestSplitFor(m.distanceM),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MedalRow extends StatelessWidget {
+  final int rank; // 1 = gold, 2 = silver, 3 = bronze
+  final String distanceLabel;
+  final double? timeSec;
+  const _MedalRow({
+    required this.rank,
+    required this.distanceLabel,
+    required this.timeSec,
+  });
+
+  static const Map<int, ({Color color, String label})> _meta = {
+    1: (color: Color(0xFFFFD24A), label: 'Fastest'),
+    2: (color: Color(0xFFC8CCD2), label: '2nd best'),
+    3: (color: Color(0xFFCD8B4A), label: '3rd best'),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final meta = _meta[rank]!;
+    return Row(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: meta.color.withValues(alpha: 0.18),
+            shape: BoxShape.circle,
+            border: Border.all(color: meta.color, width: 1.5),
+          ),
+          child: Icon(
+            PhosphorIconsFill.medal,
+            color: meta.color,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${meta.label} $distanceLabel',
+                style: TextStyle(
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                timeSec == null ? '--' : _formatSplit(timeSec!),
+                style: TextStyle(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _formatSplit(double seconds) {
+    final s = seconds.round();
+    final h = s ~/ 3600;
+    final m = (s % 3600) ~/ 60;
+    final sec = s % 60;
+    if (h > 0) {
+      return '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 }
 

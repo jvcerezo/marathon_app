@@ -67,6 +67,8 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
                   ),
           ),
           const SizedBox(height: AppSpacing.lg),
+          const _PersonalRecordsCard(),
+          const SizedBox(height: AppSpacing.lg),
           runsAsync.when(
             loading: () => const SizedBox.shrink(),
             error: (e, _) => const SizedBox.shrink(),
@@ -772,5 +774,100 @@ class _LegendDot extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// Personal records card. Shows the fastest contiguous split for each
+/// milestone distance in the user's full run history. Hides itself if
+/// no runs have qualifying splits yet (e.g. for a brand-new user).
+class _PersonalRecordsCard extends ConsumerWidget {
+  const _PersonalRecordsCard();
+
+  static const List<({int distanceM, String label})> _milestones = [
+    (distanceM: 1000, label: '1K'),
+    (distanceM: 5000, label: '5K'),
+    (distanceM: 10000, label: '10K'),
+    (distanceM: 21098, label: 'Half'),
+    (distanceM: 42195, label: 'Marathon'),
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prsAsync = ref.watch(personalRecordsProvider);
+    return prsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (prs) {
+        if (prs.isEmpty) return const SizedBox.shrink();
+        final cs = Theme.of(context).colorScheme;
+        return Container(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: cs.outlineVariant),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(PhosphorIconsDuotone.medal, color: cs.primary, size: 20),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    'Personal records',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              for (final m in _milestones)
+                if (prs[m.distanceM] != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 80,
+                          child: Text(
+                            m.label,
+                            style: TextStyle(
+                              color: cs.onSurfaceVariant,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          _formatSplit(prs[m.distanceM]!.timeSec),
+                          style: TextStyle(
+                            color: cs.onSurface,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static String _formatSplit(double seconds) {
+    final s = seconds.round();
+    final h = s ~/ 3600;
+    final m = (s % 3600) ~/ 60;
+    final sec = s % 60;
+    if (h > 0) {
+      return '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 }
