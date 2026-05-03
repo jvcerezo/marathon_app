@@ -97,8 +97,15 @@ class RecordingService {
   /// it. Once a usable fix arrives the state moves to `ready` and the UI
   /// can render a Start Run button. Recording only begins when the user
   /// taps it (see [begin]).
+  ///
+  /// [keepScreenAwake] is now ignored — the wakelock is always enabled
+  /// during a recording session. Some Android OEMs (Xiaomi/Huawei/OPPO/
+  /// Samsung) aggressively kill foreground services when the screen
+  /// turns off, even with the geolocator's own wake-lock flag. Forcing
+  /// the screen to stay on is the only reliable way to keep the GPS
+  /// stream alive across the entire run.
   Future<void> start({
-    bool keepScreenAwake = false,
+    bool keepScreenAwake = true, // kept for backward compat; ignored below.
     bool audioCues = true,
   }) async {
     if (_state != RecordingState.idle) return;
@@ -116,10 +123,11 @@ class RecordingService {
 
     _recorder = RunRecorder(); // not started
 
-    if (keepScreenAwake) {
-      await WakelockPlus.enable();
-      _wakelockEnabled = true;
-    }
+    // Always enable wakelock during a recording session, even if the
+    // user has the "keep screen awake" preference off. This is the
+    // single most effective defense against OEM background killing.
+    await WakelockPlus.enable();
+    _wakelockEnabled = true;
 
     _setState(RecordingState.awaitingFix);
 

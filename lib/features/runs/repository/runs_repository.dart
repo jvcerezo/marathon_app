@@ -1,6 +1,9 @@
 import 'package:drift/drift.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/math/geo_math.dart';
+import '../../../core/math/polyline.dart';
+import '../../../core/math/splits.dart';
 import '../../recording/models/run_sample.dart';
 import '../models/completed_run.dart';
 
@@ -183,6 +186,92 @@ class RunsRepository {
           ..where((r) => r.endedAt.isNull()))
         .get();
     return rows.map(_toDomain).toList();
+  }
+
+  /// Salvages runs whose recording session was killed before stop() ran.
+  /// Reads back whatever samples did make it to disk via the periodic
+  /// flush, recomputes distance / polyline / elevation / splits from
+  /// those samples, and writes them onto the run row so the user still
+  /// gets a complete summary instead of an empty stub.
+  ///
+  /// Returns the count of runs recovered. Runs that have zero samples
+  /// (recording killed before the first flush) are deleted instead —
+  /// they're useless and would otherwise clutter the run list forever.
+  Future<int> recoverOrphans() async {
+    final orphans = await findOrphanedRuns();
+    if (orphans.isEmpty) return 0;
+    int recovered = 0;
+    for (final run in orphans) {
+      final samples = await samplesFor(run.id);
+      if (samples.length < 2) {
+        // Nothing salvageable — drop the empty stub.
+        await (_db.delete(_db.runSamples)
+              ..where((s) => s.runId.equals(run.id)))
+            .go();
+        await (_db.delete(_db.runs)..where((r) => r.id.equals(run.id))).go();
+        continue;
+      }
+      // Reconstruct distance from the persisted samples.
+      double distanceM = 0;
+      for (int i = 1; i < samples.length; i++) {
+        distanceM += haversineMeters(
+          samples[i - 1].lat,
+          samples[i - 1].lon,
+          samples[i].lat,
+          samples[i].lon,
+        );
+      }
+      final lastTOffsetMs = samples.last.tOffsetMs;
+      final movingSec = (lastTOffsetMs / 1000).round();
+      final endedAt =
+          run.startedAt.add(Duration(milliseconds: lastTOffsetMs));
+
+      final encoded = encodePolyline(
+        simplify(
+          samples.map((s) => (lat: s.lat, lon: s.lon)).toList(),
+          4.0,
+        ),
+      );
+
+      final splits = bestSplits(
+        samples
+            .map((s) =>
+                (lat: s.lat, lon: s.lon, tOffsetMs: s.tOffsetMs))
+            .toList(),
+      );
+
+      double elevGain = 0;
+      const noiseFloorM = 2.0;
+      double? anchor;
+      for (final s in samples) {
+        final el = s.elevation;
+        if (el == null) continue;
+        if (anchor == null) {
+          anchor = el;
+          continue;
+        }
+        final delta = el - anchor;
+        if (delta >= noiseFloorM) {
+          elevGain += delta;
+          anchor = el;
+        } else if (delta <= -noiseFloorM) {
+          anchor = el;
+        }
+      }
+
+      await finalizeRun(
+        runId: run.id,
+        endedAt: endedAt,
+        distanceM: distanceM,
+        movingTimeSec: movingSec,
+        elapsedTimeSec: movingSec,
+        elevationGainM: elevGain,
+        encodedPolyline: encoded,
+        bestSplits: splits,
+      );
+      recovered += 1;
+    }
+    return recovered;
   }
 
   CompletedRun _toDomain(RunRow row) => CompletedRun(
