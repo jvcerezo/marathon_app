@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -64,6 +65,19 @@ class RecordingService {
 
   final _stateController = StreamController<RecordingState>.broadcast();
   RecordingState _state = RecordingState.idle;
+
+  /// GPS health watchdog. When recording is active and no raw GPS sample
+  /// has arrived for [_gpsStaleAfter], the stream emits `true` so the UI
+  /// can surface a "GPS signal lost" warning. Returns to `false` the
+  /// moment a sample arrives.
+  static const Duration _gpsStaleAfter = Duration(seconds: 30);
+  final _gpsStaleController = StreamController<bool>.broadcast();
+  bool _gpsStale = false;
+  DateTime? _lastRawSampleAt;
+  Timer? _gpsHealthTimer;
+
+  Stream<bool> get gpsStale$ => _gpsStaleController.stream;
+  bool get gpsStale => _gpsStale;
 
   Stream<RecordingState> get state$ => _stateController.stream;
   RecordingState get state => _state;
@@ -129,6 +143,16 @@ class RecordingService {
     await WakelockPlus.enable();
     _wakelockEnabled = true;
 
+    // Request battery-optimization exemption once. The system dialog
+    // is shown only on first ask (Android suppresses it on subsequent
+    // calls per its own UX rules), so this is safe to call every run
+    // start. Granted = OEMs are far less likely to kill the GPS
+    // foreground service mid-run; denied = wakelock alone has to do
+    // the work, and we accept that tradeoff silently.
+    if (await Permission.ignoreBatteryOptimizations.status.isDenied) {
+      await Permission.ignoreBatteryOptimizations.request();
+    }
+
     _setState(RecordingState.awaitingFix);
 
     _gpsSub = Geolocator.getPositionStream(
@@ -177,6 +201,15 @@ class RecordingService {
       _setState(RecordingState.ready);
     }
 
+    // Mark the GPS as healthy any time a raw position arrives — even
+    // during preparation, so the watchdog can dismiss a stale warning
+    // immediately when signal returns.
+    _lastRawSampleAt = DateTime.now();
+    if (_gpsStale) {
+      _gpsStale = false;
+      _gpsStaleController.add(false);
+    }
+
     if (_runStarted && _recorder != null) {
       _recorder!.onRawSample(
         RawSample(
@@ -188,6 +221,17 @@ class RecordingService {
           timestamp: p.timestamp,
         ),
       );
+    }
+  }
+
+  void _checkGpsHealth() {
+    if (_state != RecordingState.recording) return;
+    final last = _lastRawSampleAt;
+    if (last == null) return;
+    final stale = DateTime.now().difference(last) >= _gpsStaleAfter;
+    if (stale != _gpsStale) {
+      _gpsStale = stale;
+      _gpsStaleController.add(stale);
     }
   }
 
@@ -220,6 +264,14 @@ class RecordingService {
     });
 
     _flushTimer = Timer.periodic(const Duration(seconds: 30), (_) => _flush());
+
+    // Health watchdog ticks every 5s and emits true if no GPS sample
+    // has arrived within the stale window. Five seconds is responsive
+    // without spamming the UI.
+    _gpsHealthTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _checkGpsHealth(),
+    );
 
     _setState(RecordingState.recording);
   }
@@ -260,6 +312,7 @@ class RecordingService {
     await _gpsSub?.cancel();
     await _sampleSub?.cancel();
     _flushTimer?.cancel();
+    _gpsHealthTimer?.cancel();
 
     final endedAt = DateTime.now();
     final elapsedSec = recorder.elapsed.inSeconds;
@@ -333,6 +386,12 @@ class RecordingService {
     _gpsSub = null;
     _sampleSub = null;
     _flushTimer = null;
+    _gpsHealthTimer = null;
+    _lastRawSampleAt = null;
+    if (_gpsStale) {
+      _gpsStale = false;
+      _gpsStaleController.add(false);
+    }
     _runStarted = false;
     _previewSample = null;
     _buffer.clear();

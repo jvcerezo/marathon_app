@@ -121,39 +121,47 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                   },
                 ),
               )
-            : showMap
-                ? _MapLayout(
-                    samples: samples,
-                    isRecording: isRecording,
-                    state: stateAsync.value,
-                    recorder: recorder,
-                    starting: _starting,
-                    onClose: () => _confirmExit(context, svc),
-                    onPauseToggle: () {
-                      if (stateAsync.value == RecordingState.paused) {
-                        svc.resume();
-                      } else {
-                        svc.pause();
-                      }
-                    },
-                    onFinish: _stop,
-                    onBegin: _begin,
-                  )
-                : _NoMapLayout(
-                    state: stateAsync.value,
-                    recorder: recorder,
-                    starting: _starting,
-                    onClose: () => _confirmExit(context, svc),
-                    onPauseToggle: () {
-                      if (stateAsync.value == RecordingState.paused) {
-                        svc.resume();
-                      } else {
-                        svc.pause();
-                      }
-                    },
-                    onFinish: _stop,
-                    onBegin: _begin,
+            : Stack(
+                children: [
+                  showMap
+                      ? _MapLayout(
+                          samples: samples,
+                          isRecording: isRecording,
+                          state: stateAsync.value,
+                          recorder: recorder,
+                          starting: _starting,
+                          onClose: () => _confirmExit(context, svc),
+                          onPauseToggle: () {
+                            if (stateAsync.value == RecordingState.paused) {
+                              svc.resume();
+                            } else {
+                              svc.pause();
+                            }
+                          },
+                          onFinish: _stop,
+                          onBegin: _begin,
+                        )
+                      : _NoMapLayout(
+                          state: stateAsync.value,
+                          recorder: recorder,
+                          starting: _starting,
+                          onClose: () => _confirmExit(context, svc),
+                          onPauseToggle: () {
+                            if (stateAsync.value == RecordingState.paused) {
+                              svc.resume();
+                            } else {
+                              svc.pause();
+                            }
+                          },
+                          onFinish: _stop,
+                          onBegin: _begin,
+                        ),
+                  const Positioned(
+                    top: 0, left: 0, right: 0,
+                    child: SafeArea(child: _GpsHealthBanner()),
                   ),
+                ],
+              ),
       ),
     );
   }
@@ -1112,6 +1120,52 @@ class _BottomPanel extends ConsumerWidget {
             onPauseToggle: onPauseToggle,
             onFinish: onFinish,
             onBegin: onBegin,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Sticky banner that surfaces when no GPS sample has arrived for 30+
+/// seconds during an active recording. Disappears automatically the
+/// moment a sample lands.
+class _GpsHealthBanner extends ConsumerWidget {
+  const _GpsHealthBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stale = ref.watch(gpsStaleProvider).value ?? false;
+    if (!stale) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg, vertical: AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.miss.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            PhosphorIconsRegular.warning,
+            color: Colors.white,
+            size: 18,
+          ),
+          SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              'GPS signal lost. Step out from under cover to keep '
+              'recording.',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),

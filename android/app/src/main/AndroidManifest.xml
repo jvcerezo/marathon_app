@@ -21,6 +21,11 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
+    <!-- Battery optimization exemption. Without this, aggressive OEM
+         ROMs (Xiaomi/Huawei/OPPO/Samsung) can kill the GPS foreground
+         service mid-run. We prompt once on first recording session. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+
     <application
         android:label="Daloy"
         android:name="${applicationName}"

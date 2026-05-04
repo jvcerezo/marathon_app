@@ -436,12 +436,7 @@ class _StatsTriad extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: _MiniStat(
-              label: 'Streak',
-              value: '${stats.streakDays}',
-              unit: stats.streakDays == 1 ? 'day' : 'days',
-              accent: AppColors.ember,
-            ),
+            child: _StreakStat(days: stats.streakDays),
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
@@ -1275,6 +1270,88 @@ class _ChoiceTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Streak counter with a flame icon. The flame fills with ember color
+/// once the user has any active streak; double-flame appears at the
+/// 7-day mark to signal a real habit. Cold/gray when streak is zero.
+class _StreakStat extends StatelessWidget {
+  final int days;
+  const _StreakStat({required this.days});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final active = days >= 1;
+    final hot = days >= 7;
+    final flameColor = active ? AppColors.ember : AppColors.smoke;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md, vertical: AppSpacing.lg,
+      ),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                PhosphorIconsFill.flame,
+                color: flameColor,
+                size: 14,
+              ),
+              if (hot) ...[
+                const SizedBox(width: 2),
+                const Icon(
+                  PhosphorIconsFill.flame,
+                  color: AppColors.ember,
+                  size: 14,
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'STREAK',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          RichText(
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+                color: hot ? AppColors.ember : cs.onSurface,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+              text: '$days',
+              children: [
+                TextSpan(
+                  text: days == 1 ? ' day' : ' days',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurfaceVariant,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
